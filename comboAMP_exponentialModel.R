@@ -1,6 +1,9 @@
+# declare the project root
+here::i_am("comboAMP_exponentialModel.R")
+
 library(survival)
 library(tidyverse)
-source("h:/SCHARP/comboAMP/seqDesign/code/functions_eventSplits_sampleSize.R")
+source(here::here("functions_eventSplits_sampleSize.R"))
 
 # event target
 eventTarget <- 27
@@ -83,5 +86,3 @@ summary(sapply(out, "[[", "notEnrolled"))
 #   group_by(pla, vax) %>%
 #   summarise(prob = n() / iter)
 # df
-# 
-# write.csv(df, file = paste0("h:/SCHARP/comboAMP/slides/splits_target=", eventTarget, "events.csv"), row.names = FALSE)
