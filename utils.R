@@ -1,3 +1,7 @@
+library(survival)
+library(DescTools)
+source(here::here("cuminc_functions.R"))
+
 # compute total events for adequate power under a given design alternative
 # (Schoenfeld, 1983, Biometrics)
 ((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.7) - log(0.25))^2)
@@ -24,6 +28,95 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
   r0 <- rate0 / (rate0 + rateC)
   pEvent0 <- r0 - r0 * exp(-(rate0 + rateC) * tau)
   return(n / (p1 * pEvent1 + p0 * pEvent0))
+}
+
+oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR, 
+                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
+  
+  # total sample size
+  n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
+         rate0 = rate_pla, rateC = rate_cens, tau = tau)
+  
+  # sample size per arm under 1:1 allocation
+  n <- ceiling(n / 2)
+  cat("Total sample size:", 2 * n, "\n")
+  
+  # enrollment rate: 1000 participants/4 months
+  enrollPeriod <- 2 * n * (4 / 12) / 1000
+  
+  n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
+  cat("Expected number of events in the Ab arm (version 1):", n1, "\n")
+  
+  rate1 <- rate_pla * altHR
+  r1 <- rate1 / (rate1 + rate_cens)
+  pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
+  cat("Expected number of events in the Ab arm (version 2):", n * pEvent1, "\n")
+  
+  df <- plyr::ldply(1:iter, function(i){
+    set.seed(i)
+    
+    enrollTime <- runif(2 * n, max = enrollPeriod)
+    tx <- rep(0:1, each = n)
+    tm <- c(rexp(n, rate_pla), rexp(n, rate_pla * altHR))
+    cens <- rexp(2 * n, rate_cens)
+    eventTime <- pmin(tm, cens)
+    eventInd <- as.numeric(tm <= cens)
+    calTime <- enrollTime + eventTime
+    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases]
+    eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
+    calTime <- pmin(calTime, analysisTime)
+    eventTime <- pmax(calTime - enrollTime, 0)
+    
+    notEnrolled <- sum(eventTime == 0)
+    tx <- tx[eventTime > 0]
+    eventInd <- eventInd[eventTime > 0]
+    eventTime <- eventTime[eventTime > 0]
+    
+    split <- as.numeric(tapply(eventInd, tx, sum))
+    
+    # binomial score test when the number of cases is very low in the treatment
+    # group
+    if(split[2] <= 1){
+      df <- table(tx, eventInd)
+      rownames(df) <- c("placebo","vaccine")
+      colnames(df) <- c("nonEvent", "Event")
+      df2 <- df[c(2, 1), c(2, 1)]
+      CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
+      score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
+    }
+    
+    # 1-sided Wald test
+    sfit <- summary(coxph(Surv(eventTime, eventInd) ~ tx)) 
+    #warning is given when the number of cases is zero for the treatment group
+    stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
+    wald_pval <- pnorm(stat)
+    if(split[2] == 0){wald_pval <- score_pval}
+    
+    # 1-sided log-rank test: doesn't have correct size for testing
+    # H0: HR >= nullHR, where nullHR < 1; it does have correct size for nullHR = 1
+    # LR <- survdiff(Surv(eventTime, eventInd) ~ tx)
+    # HR <- (LR$obs[2] / LR$exp[2]) / (LR$obs[1] / LR$exp[1])
+    # pval <- pchisq(LR$chisq, length(LR$n)-1, lower.tail = FALSE) / 2
+    # logrank_pval <- ifelse(HR < nullHR, pval, 1 - pval)
+    
+    # 1-sided Wald test based on the Nelson-Aalen estimator for the cumulative
+    # incidence
+    data <- data.frame("eventTime" = eventTime, "eventInd" = eventInd, "tx" = tx)
+    cuminc_est <- naCumInc( data = data, futimeVar = "eventTime", eventVar = "eventInd", 
+                            groupVar = "tx", censor = list( minAtRisk = 150))
+    
+    cuminc_PE_est <- EffCIR(cuminc_est, refLvl = "0", cmpLvl="1", nullHypEff=1 - nullHR, test = "oneSided")
+    cuminc_pval <- cuminc_PE_est$tests$pvalue
+    # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
+    if(split[2] <= 1 & is.na(cuminc_pval)){cuminc_pval <- score_pval}
+    
+    return(data.frame(iter = i, analysisTime = analysisTime, 
+                      pla_events = split[1], vax_events = split[2],
+                      wald_pval = wald_pval, cuminc_pval = cuminc_pval, 
+                      notEnrolled = notEnrolled))
+  })
+  
+  return(df)
 }
 
 #' @param n_on_study number of originally enrolled participants at risk at the
