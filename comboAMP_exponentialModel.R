@@ -4,30 +4,56 @@ here::i_am("comboAMP_exponentialModel.R")
 library(tidyverse)
 source(here::here("utils.R"))
 
-df <- oper_chars_eff_phase(n_target_cases = 12,
-                           rate_pla = 0.032,
-                           nullHR = 0.7,
-                           altHR = 0.1,
-                           rate_cens = 0.075,
-                           tau = 1,
-                           iter = 1000)
 
+# Input parameters --------------------------------------------------------
+
+n_target_cases <- 18
+rate_pla <- 0.032
+nullHR <- 0.7
+altHR <- 0.15
+rate_cens <- 0.075
+tau <- 1
+iter <- 1000
+# correlates expansion phase
+n_to_enroll <- 5000
+n_target_cases_ab <- 35
+
+# Run the simulation ------------------------------------------------------
+
+df <- oper_chars_eff_phase(n_target_cases = n_target_cases,
+                           rate_pla = rate_pla,
+                           nullHR = nullHR,
+                           altHR = altHR,
+                           rate_cens = rate_cens,
+                           tau = tau,
+                           iter = iter)
 
 # power
-mean(sapply(out, "[[", "wald_pval") <= 0.025)
-# mean(sapply(out, "[[", "logrank_pval") <= 0.025)
+mean(df$wald_pval <= 0.025)
+mean(df$cuminc_pval <= 0.025)
 
-mean(sapply(out, "[[", "cuminc_pval") <= 0.025, na.rm = TRUE) #some tests have NA since the treatment group has <=1 case
-cuminc_pval <- sapply(out, "[[", "cuminc_pval")
 # check the time when the target number of events is accrued
-mean(sapply(out, "[[", "analysisTime"))
+summary(df$analysisTime)
 
-summary(sapply(out, "[[", "notEnrolled"))
+# are there iterations where the target event count was reached before the
+# enrollment was complete?
+summary(df$not_enrolled)
+
+df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - rate_cens * tau,
+                               n_to_enroll = n_to_enroll,
+                               n_obs_cases_ab = mean(df$n_cases_ab),
+                               n_target_cases_ab = n_target_cases_ab,
+                               rate_pla = rate_pla,
+                               altHR = altHR,
+                               rate_cens = rate_cens,
+                               iter = iter)
+
+# check the time when the target number of events is accrued in the Ab arm
+summary(df2$analysisTime)
 
 
-# splits
-# df <- data.frame(pla = sapply(out, "[[", "pla_events"),
-#                  vax = sapply(out, "[[", "vax_events")) %>%
-#   group_by(pla, vax) %>%
-#   summarise(prob = n() / iter)
+# event splits
+# df <- df %>%
+#   group_by(n_cases_pla, n_cases_ab) %>%
+#   summarise(prob = n() / max(iter))
 # df

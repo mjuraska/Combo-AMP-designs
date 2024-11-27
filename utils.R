@@ -67,7 +67,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     calTime <- pmin(calTime, analysisTime)
     eventTime <- pmax(calTime - enrollTime, 0)
     
-    notEnrolled <- sum(eventTime == 0)
+    not_enrolled <- sum(eventTime == 0)
     tx <- tx[eventTime > 0]
     eventInd <- eventInd[eventTime > 0]
     eventTime <- eventTime[eventTime > 0]
@@ -86,7 +86,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     }
     
     # 1-sided Wald test
-    sfit <- summary(coxph(Surv(eventTime, eventInd) ~ tx)) 
+    sfit <- summary(suppressWarnings(coxph(Surv(eventTime, eventInd) ~ tx)))
     #warning is given when the number of cases is zero for the treatment group
     stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
     wald_pval <- pnorm(stat)
@@ -110,10 +110,10 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
     if(split[2] <= 1 & is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
-    return(data.frame(iter = i, analysisTime = analysisTime, 
-                      pla_events = split[1], vax_events = split[2],
+    return(data.frame(iter = i, n_enrolled = 2 * n, analysisTime = analysisTime, 
+                      n_cases_pla = split[1], n_cases_ab = split[2],
                       wald_pval = wald_pval, cuminc_pval = cuminc_pval, 
-                      notEnrolled = notEnrolled))
+                      not_enrolled = not_enrolled))
   })
   
   return(df)
@@ -132,6 +132,9 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
 duration_corr_exp_phase <- function(n_on_study, n_to_enroll, 
                                     n_obs_cases_ab, n_target_cases_ab, 
                                     rate_pla, altHR, rate_cens, iter){
+  
+  cat("The number on study at the start of cross-over:", n_on_study, "\n")
+  
   # enrollment rate: 1000 participants/4 months
   enrollPeriod <- n_to_enroll * (4 / 12) / 1000
   
@@ -150,10 +153,10 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
     eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
     calTime <- pmin(calTime, analysisTime)
     eventTime <- pmax(calTime - enrollTime, 0)
-    notEnrolled <- sum(eventTime == 0)
+    not_enrolled <- sum(eventTime == 0)
     
     return(data.frame(iter = i, analysisTime = analysisTime, 
-                      notEnrolled = notEnrolled))
+                      not_enrolled = not_enrolled))
   })
   
   return(df)
