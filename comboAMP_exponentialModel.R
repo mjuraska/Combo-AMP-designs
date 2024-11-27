@@ -7,7 +7,7 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-n_target_cases <- 18
+n_target_cases <- 25
 rate_pla <- 0.032
 nullHR <- 0.7
 altHR <- 0.15
@@ -39,7 +39,7 @@ summary(df$analysisTime)
 # enrollment was complete?
 summary(df$not_enrolled)
 
-df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - rate_cens * tau,
+df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens,
                                n_to_enroll = n_to_enroll,
                                n_obs_cases_ab = mean(df$n_cases_ab),
                                n_target_cases_ab = n_target_cases_ab,
@@ -51,6 +51,9 @@ df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - 
 # check the time when the target number of events is accrued in the Ab arm
 summary(df2$analysisTime)
 
+# are there iterations where the target event count in the Ab arm was reached
+# before the enrollment was complete?
+summary(df2$not_enrolled)
 
 # event splits
 # df <- df %>%
