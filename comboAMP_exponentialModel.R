@@ -7,13 +7,13 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-n_target_cases <- 25
+n_target_cases <- 20
 rate_pla <- 0.032
 nullHR <- 0.7
-altHR <- 0.15
+altHR <- 0.1
 rate_cens <- 0.075
 tau <- 1
-iter <- 1000
+iter <- 2000
 # correlates expansion phase
 n_to_enroll <- 5000
 n_target_cases_ab <- 35

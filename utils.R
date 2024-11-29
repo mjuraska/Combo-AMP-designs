@@ -51,7 +51,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
   r1 <- rate1 / (rate1 + rate_cens)
   pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
   cat("Expected number of events in the Ab arm (version 2):", n * pEvent1, "\n")
-  
+
   df <- plyr::ldply(1:iter, function(i){
     set.seed(i)
     
@@ -62,7 +62,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     eventTime <- pmin(tm, cens)
     eventInd <- as.numeric(tm <= cens)
     calTime <- enrollTime + eventTime
-    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases]
+    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases] + 2/12
     eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
     calTime <- pmin(calTime, analysisTime)
     eventTime <- pmax(calTime - enrollTime, 0)
@@ -74,16 +74,13 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     
     split <- as.numeric(tapply(eventInd, tx, sum))
     
-    # binomial score test when the number of cases is very low in the treatment
-    # group
-    if(split[2] <= 1){
-      df <- table(tx, eventInd)
-      rownames(df) <- c("placebo","vaccine")
-      colnames(df) <- c("nonEvent", "Event")
-      df2 <- df[c(2, 1), c(2, 1)]
-      CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
-      score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
-    }
+    # binomial score test 
+    df <- table(tx, eventInd)
+    rownames(df) <- c("placebo","vaccine")
+    colnames(df) <- c("nonEvent", "Event")
+    df2 <- df[c(2, 1), c(2, 1)]
+    CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
+    score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
     
     # 1-sided Wald test
     sfit <- summary(suppressWarnings(coxph(Surv(eventTime, eventInd) ~ tx)))
@@ -108,7 +105,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     cuminc_PE_est <- EffCIR(cuminc_est, refLvl = "0", cmpLvl="1", nullHypEff=1 - nullHR, test = "oneSided")
     cuminc_pval <- cuminc_PE_est$tests$pvalue
     # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
-    if(split[2] <= 1 & is.na(cuminc_pval)){cuminc_pval <- score_pval}
+    if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
     return(data.frame(iter = i, n_enrolled = 2 * n, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
