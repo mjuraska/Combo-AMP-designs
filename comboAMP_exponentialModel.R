@@ -7,16 +7,17 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-n_target_cases <- 20
+n_target_cases <- 40
 rate_pla <- 0.032
 nullHR <- 0.7
-altHR <- 0.1
+altHR <- 0.25
 rate_cens <- 0.075
-tau <- 1
+tau <- 1.5
 iter <- 2000
 # correlates expansion phase
-n_to_enroll <- 5000
+n_to_enroll <- 0
 n_target_cases_ab <- 35
+
 
 # Run the simulation ------------------------------------------------------
 
@@ -50,7 +51,8 @@ df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - 
 
 # check the time when the target number of events is accrued in the Ab arm
 summary(df2$analysisTime)
-
+#Correlates expansion sample size
+round(df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens + n_to_enroll, 0)
 # are there iterations where the target event count in the Ab arm was reached
 # before the enrollment was complete?
 summary(df2$not_enrolled)

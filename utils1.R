@@ -33,6 +33,7 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
 oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR, 
                                  rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
   
+  
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
          rate0 = rate_pla, rateC = rate_cens, tau = tau)
@@ -100,14 +101,16 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # incidence
     data <- data.frame("eventTime" = eventTime, "eventInd" = eventInd, "tx" = tx)
     cuminc_est <- naCumInc( data = data, futimeVar = "eventTime", eventVar = "eventInd", 
-                            groupVar = "tx", censor = list( minAtRisk = 150))
-    
+                            groupVar = "tx", censor = list( minAtRisk = 100, time = max(eventTime[eventInd == 1])))
+    #    If *both* 'minAtRisk' and 'time'=t are specified, the time that satisfies
+    #    the 'minAtRisk' criteria will be determined, and then the *smaller* of that time and
+    #    time 't' will be used for censoring (and *that* value returned via 'censorTime'
     cuminc_PE_est <- EffCIR(cuminc_est, refLvl = "0", cmpLvl="1", nullHypEff=1 - nullHR, test = "oneSided")
     cuminc_pval <- cuminc_PE_est$tests$pvalue
     # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
     if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
-    return(data.frame(iter = i, n_enrolled = 2 * n, analysisTime = analysisTime, 
+    return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, pEvent1 = pEvent1, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
                       wald_pval = wald_pval, cuminc_pval = cuminc_pval, 
                       not_enrolled = not_enrolled))
