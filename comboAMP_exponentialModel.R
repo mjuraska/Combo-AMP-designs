@@ -2,7 +2,7 @@
 here::i_am("comboAMP_exponentialModel.R")
 
 library(tidyverse)
-source(here::here("utils3.R"))
+source(here::here("utils.R"))
 
 
 # Input parameters --------------------------------------------------------
@@ -12,11 +12,15 @@ rate_pla <- 0.032
 nullHR <- 0.7
 altHR <- 0.25
 rate_cens <- 0.075
-tau <- 1.5
+tau <- 78 / 52
 iter <- 2000
 # correlates expansion phase
-n_to_enroll <- 0
+n_to_enroll <- 4000
 n_target_cases_ab <- 35
+# 2-arm design
+# altHR_high <- altHR
+# 3-arm design
+altHR_high <- 0.15
 
 
 # Run the simulation ------------------------------------------------------
@@ -40,12 +44,26 @@ summary(df$analysisTime)
 # enrollment was complete?
 summary(df$not_enrolled)
 
-df2 <- duration_corr_exp_phase(n_on_study = df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens,
+# 2-arm design
+# n_on_study <- df$n_enrolled[1] - 
+#   n_target_cases - df$n_enrolled[1] * tau * rate_cens
+# 3-arm design
+n_on_study <- (5 / 4) * df$n_enrolled[1] - 
+  n_target_cases - altHR_high * (n_target_cases - df$n1[1]) / 2 - 
+  (5 / 4) * df$n_enrolled[1] * tau * rate_cens
+
+# 2-arm design
+# n_obs_cases_ab <- mean(df$n_cases_ab)
+# 3-arm design
+n_obs_cases_ab <- mean(df$n_cases_ab) + 
+  altHR_high * (n_target_cases - mean(df$n_cases_ab)) / 2
+
+df2 <- duration_corr_exp_phase(n_on_study = n_on_study,
                                n_to_enroll = n_to_enroll,
-                               n_obs_cases_ab = mean(df$n_cases_ab),
+                               n_obs_cases_ab = n_obs_cases_ab,
                                n_target_cases_ab = n_target_cases_ab,
                                rate_pla = rate_pla,
-                               altHR = altHR,
+                               altHR = altHR_high,
                                rate_cens = rate_cens,
                                iter = iter)
 

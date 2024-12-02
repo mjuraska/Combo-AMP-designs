@@ -31,7 +31,8 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
 }
 
 oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR, 
-                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
+                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter,
+                                 minAtRisk = 150){
   
   
   # total sample size
@@ -101,7 +102,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # incidence
     data <- data.frame("eventTime" = eventTime, "eventInd" = eventInd, "tx" = tx)
     cuminc_est <- naCumInc( data = data, futimeVar = "eventTime", eventVar = "eventInd", 
-                            groupVar = "tx", censor = list( minAtRisk = 100, time = max(eventTime[eventInd == 1])))
+                            groupVar = "tx", censor = list( minAtRisk = minAtRisk, time = max(eventTime[eventInd == 1])))
     #    If *both* 'minAtRisk' and 'time'=t are specified, the time that satisfies
     #    the 'minAtRisk' criteria will be determined, and then the *smaller* of that time and
     #    time 't' will be used for censoring (and *that* value returned via 'censorTime'
