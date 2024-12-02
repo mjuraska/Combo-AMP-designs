@@ -2,7 +2,7 @@
 here::i_am("comboAMP_exponentialModel.R")
 
 library(tidyverse)
-source(here::here("utils.R"))
+source(here::here("utils3.R"))
 
 
 # Input parameters --------------------------------------------------------
