@@ -38,6 +38,7 @@ altHR <- c(0.25, 0.35)
 rate_cens <- 0.075
 p_ab <- 1/3
 p_pla <- 2/3
+n_enroll_4m <- 1000
 tau <- c(1.5, 1.5)
 iter <- 2000
 
@@ -49,6 +50,7 @@ for (i in 1:length(n_target_cases)){
                                                       rate_cens = rate_cens,
                                                       p_ab = p_ab,
                                                       p_pla = p_pla,
+                                                      n_enroll_4m = n_enroll_4m,
                                                       tau = tau[i],
                                                       iter = iter)
   

@@ -30,20 +30,25 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
   return(n / (p1 * pEvent1 + p0 * pEvent0))
 }
 
+# 2-arm designs
+#' @param n_enroll_4m an integer value specifying the enrollment rate as the
+#'   number of participants enrolled per 4 months
 oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR, 
-                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter,
+                                 rate_cens, p_ab = 0.5, p_pla = 0.5, 
+                                 n_enroll_4m = 1000, tau, iter, 
                                  minAtRisk = 150){
   
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
          rate0 = rate_pla, rateC = rate_cens, tau = tau)
   
-  # sample size per arm under 1:1 allocation
-  n <- ceiling(n / 2)
-  cat("Total sample size:", 2 * n, "\n")
+  # sample size in each arm
+  n_pla <- ceiling(n * p_pla)
+  n_ab <- ceiling(n * p_ab)
+  cat("Total sample size for the 2 arms included in the comparison:", n_pla + n_ab, "\n")
   
-  # enrollment rate: 1000 participants/4 months
-  enrollPeriod <- 2 * n * (4 / 12) / 1000
+  # enrollment rate: 'n_enroll_4m' participants / 4 months
+  enrollPeriod <- (n_pla + n_ab) * (4 / 12) / n_enroll_4m
   
   n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
   cat("Expected number of events in the Ab arm (version 1):", n1, "\n")
@@ -51,15 +56,15 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
   rate1 <- rate_pla * altHR
   r1 <- rate1 / (rate1 + rate_cens)
   pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
-  cat("Expected number of events in the Ab arm (version 2):", n * pEvent1, "\n")
+  cat("Expected number of events in the Ab arm (version 2):", n_ab * pEvent1, "\n")
 
   df <- plyr::ldply(1:iter, function(i){
     set.seed(i)
     
-    enrollTime <- runif(2 * n, max = enrollPeriod)
-    tx <- rep(0:1, each = n)
-    tm <- c(rexp(n, rate_pla), rexp(n, rate_pla * altHR))
-    cens <- rexp(2 * n, rate_cens)
+    enrollTime <- runif(n_pla + n_ab, max = enrollPeriod)
+    tx <- rep(0:1, c(n_pla, n_ab))
+    tm <- c(rexp(n_pla, rate_pla), rexp(n_ab, rate_pla * altHR))
+    cens <- rexp(n_pla + n_ab, rate_cens)
     eventTime <- pmin(tm, cens)
     eventInd <- as.numeric(tm <= cens)
     calTime <- enrollTime + eventTime
@@ -77,8 +82,8 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     
     # binomial score test 
     df <- table(tx, eventInd)
-    rownames(df) <- c("placebo","vaccine")
-    colnames(df) <- c("nonEvent", "Event")
+    rownames(df) <- c("placebo", "Ab")
+    colnames(df) <- c("nonEvent", "event")
     df2 <- df[c(2, 1), c(2, 1)]
     CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
     score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
@@ -113,7 +118,8 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
     # if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
-    return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, pEvent1 = pEvent1, analysisTime = analysisTime, 
+    return(data.frame(iter = i, n_enrolled = n_pla + n_ab,  n1 = n1, 
+                      pEvent1 = pEvent1, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
                       wald_pval = wald_pval, 
                       # cuminc_pval = cuminc_pval, 
@@ -145,7 +151,7 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
   
   cat("The number on study at the start of cross-over:", n_on_study, "\n")
   
-  # enrollment rate: 1000 participants/4 months
+  # enrollment rate: 1000 participants / 4 months
   enrollPeriod <- n_to_enroll * (4 / 12) / 1000
   
   rate_ab <- rate_pla * altHR
@@ -180,7 +186,7 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
 
 
 oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_pla, nullHR, altHR, 
-                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
+                                 rate_cens, p_ab = 0.5, p_pla = 0.5, n_enroll_4m = 1000, tau, iter){
   
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
@@ -190,8 +196,8 @@ oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_p
   n_pla <- ceiling(n * p_pla)
   n_ab <- ceiling(n * p_ab)
   
-  # enrollment rate: 1000 participants/4 months
-  enrollPeriod <- (n_ab + n_pla) * (4 / 12) / 1000
+  # enrollment rate: 'n_enroll_4m' participants / 4 months
+  enrollPeriod <- (n_ab + n_pla) * (4 / 12) / n_enroll_4m
   
   n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
   
