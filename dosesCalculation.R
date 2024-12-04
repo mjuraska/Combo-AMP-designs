@@ -1,5 +1,7 @@
+rm(list = ls(all = TRUE))
+
 # declare the project root
-here::i_am("comboAMP_exponentialModel.R")
+here::i_am("dosesCalculation.R")
 
 library(tidyverse)
 source(here::here("utils.R"))
@@ -15,30 +17,35 @@ numOfDosesTab <- tibble("rate_pla" = numeric(), "n_target_cases" = numeric(), "A
                         "Q2NumOfDoses" = numeric(),
                         "Q3NumOfDoses" = numeric(),
                         "maxNumOfDoses" = numeric())
-n_target_cases <- 17
-rate_pla <- 0.032
-nullHR <- 0.7
-altHR <- 0.1
+
+# 2-arm designs and low-dose vs pla comparisons in 3-arm designs
+n_target_cases <- c(21, 22, 40, 135)
+rate_pla <- 0.026
+nullHR <- 0.75
+altHR <- c(0.15, 0.15, 0.25, 0.35)
 rate_cens <- 0.075
-tau <- 1
+tau <- c(1, rep(1.5, 3))
 iter <- 2000
 
+for (i in 1:4){
+  df <- oper_chars_eff_phase_dosesCalculation_twoArms(n_target_cases = n_target_cases[i],
+                                                      rate_pla = rate_pla,
+                                                      nullHR = nullHR,
+                                                      altHR = altHR[i],
+                                                      rate_cens = rate_cens,
+                                                      tau = tau[i],
+                                                      iter = iter)
+  
+  numOfDosesTab <- add_row(.data = numOfDosesTab, "rate_pla" = rate_pla,
+                           "n_target_cases" = n_target_cases[i], 
+                           "AbSampleSize" = df$n_enrolled[1] / 2,
+                           "nullHR" = nullHR, "altHR" = altHR[i], "tau" = tau[i], 
+                           "minNumOfDoses" = min(df$numOfDoses),
+                           "Q1NumOfDoses" = quantile(df$numOfDoses, probs = 0.25),
+                           "meanNumOfDoses" = mean(df$numOfDoses),
+                           "Q2NumOfDoses" = quantile(df$numOfDoses, probs = 0.5),
+                           "Q3NumOfDoses" = quantile(df$numOfDoses, probs = 0.75),
+                           "maxNumOfDoses" = max(df$numOfDoses))
+}
 
-df <- oper_chars_eff_phase_dosesCalculation_twoArms(n_target_cases = n_target_cases,
-                           rate_pla = rate_pla,
-                           nullHR = nullHR,
-                           altHR = altHR,
-                           rate_cens = rate_cens,
-                           tau = tau,
-                           iter = iter)
-
-numOfDosesTab <- add_row(.data = numOfDosesTab, "rate_pla" = rate_pla,
-                         "n_target_cases" = n_target_cases, 
-                         "AbSampleSize" = df$n_enrolled[1]/2,
-                         "nullHR" = nullHR, "altHR" = altHR, "tau" = tau, 
-                         "minNumOfDoses" = min(df$numOfDoses),
-                         "Q1NumOfDoses" = quantile(df$numOfDoses, probs = 0.25),
-                         "meanNumOfDoses" = mean(df$numOfDoses),
-                         "Q2NumOfDoses" = quantile(df$numOfDoses, probs = 0.5),
-                         "Q3NumOfDoses" = quantile(df$numOfDoses, probs = 0.75),
-                         "maxNumOfDoses" = max(df$numOfDoses))
+numOfDosesTab
