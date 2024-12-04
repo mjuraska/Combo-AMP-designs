@@ -64,7 +64,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     eventTime <- pmin(tm, cens)
     eventInd <- as.numeric(tm <= cens)
     calTime <- enrollTime + eventTime
-    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases] + 2/12
+    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases]
     eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
     calTime <- pmin(calTime, analysisTime)
     eventTime <- pmax(calTime - enrollTime, 0)
@@ -205,25 +205,20 @@ oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_p
     eventTime <- pmin(tm, cens)
     eventInd <- as.numeric(tm <= cens)
     calTime <- enrollTime + eventTime
-    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases] + 2/12
-    maxDoseTime <- sort(calTime[eventInd == 1])[n_target_cases]
+    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases]
     eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
     calTime <- pmin(calTime, analysisTime)
-    calMaxDoseTime <- pmin(calTime, maxDoseTime)
     eventTime <- pmax(calTime - enrollTime, 0)
-    eventDoseTime <- pmax(calMaxDoseTime - enrollTime, 0)
     
     not_enrolled <- sum(eventTime == 0)
     tx <- tx[eventTime > 0]
     eventInd <- eventInd[eventTime > 0]
     eventTime <- eventTime[eventTime > 0]
-    eventDoseTime <-  eventDoseTime[eventDoseTime > 0]
     
     split <- as.numeric(tapply(eventInd, tx, sum))
     
     # calculating the total number of doses given; focus on Ab arm; doses are given every 6 months, including enrollment
-    eventDoseTime_Ab <- eventDoseTime[tx == 1]
-    m <- ceiling(eventDoseTime_Ab/0.5)
+    m <- ceiling(eventTime[tx == 1] / 0.5)
 
     return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, numOfDoses = sum(m)))
   })
