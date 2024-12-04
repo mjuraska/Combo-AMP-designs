@@ -114,7 +114,12 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, pEvent1 = pEvent1, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
                       wald_pval = wald_pval, cuminc_pval = cuminc_pval, 
-                      not_enrolled = not_enrolled))
+                      not_enrolled = not_enrolled, 
+                      meanEventTime = mean(eventTime),
+                      Q1EventTime = quantile(eventTime, probs = 0.25),
+                      Q3EventTime = quantile(eventTime, probs = 0.75),
+                      maxEventTime = max(eventTime),
+                      minEventTime = min(eventTime)))
   })
   
   return(df)
@@ -155,10 +160,74 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
     calTime <- pmin(calTime, analysisTime)
     eventTime <- pmax(calTime - enrollTime, 0)
     not_enrolled <- sum(eventTime == 0)
-    
+  
+    newlyenrolledInd <- c(rep(0, n_on_study), rep(1, n_to_enroll))
     return(data.frame(iter = i, analysisTime = analysisTime, 
+                      meanEventTime = mean(eventTime[newlyenrolledInd == 1]),
+                      Q1EventTime = quantile(eventTime[newlyenrolledInd == 1], probs = 0.25),
+                      Q3EventTime = quantile(eventTime[newlyenrolledInd == 1], probs = 0.75),
+                      maxEventTime = max(eventTime[newlyenrolledInd == 1]),
+                      minEventTime = min(eventTime[newlyenrolledInd == 1]),
                       not_enrolled = not_enrolled))
   })
   
   return(df)
 }
+
+
+oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_pla, nullHR, altHR, 
+                                 rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
+  
+  
+  # total sample size
+  n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
+         rate0 = rate_pla, rateC = rate_cens, tau = tau)
+  
+  # sample size per arm under 1:1 allocation
+  n <- ceiling(n / 2)
+  
+  # enrollment rate: 1000 participants/4 months
+  enrollPeriod <- 2 * n * (4 / 12) / 1000
+  
+  n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
+  
+  rate1 <- rate_pla * altHR
+  r1 <- rate1 / (rate1 + rate_cens)
+  pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
+  
+  df <- plyr::ldply(1:iter, function(i){
+    set.seed(i)
+    
+    enrollTime <- runif(2 * n, max = enrollPeriod)
+    tx <- rep(0:1, each = n)
+    tm <- c(rexp(n, rate_pla), rexp(n, rate_pla * altHR))
+    cens <- rexp(2 * n, rate_cens)
+    eventTime <- pmin(tm, cens)
+    eventInd <- as.numeric(tm <= cens)
+    calTime <- enrollTime + eventTime
+    analysisTime <- sort(calTime[eventInd == 1])[n_target_cases] + 2/12
+    maxDoseTime <- sort(calTime[eventInd == 1])[n_target_cases]
+    eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
+    calTime <- pmin(calTime, analysisTime)
+    calMaxDoseTime <- pmin(calTime, maxDoseTime)
+    eventTime <- pmax(calTime - enrollTime, 0)
+    eventDoseTime <- pmax(calMaxDoseTime - enrollTime, 0)
+    
+    not_enrolled <- sum(eventTime == 0)
+    tx <- tx[eventTime > 0]
+    eventInd <- eventInd[eventTime > 0]
+    eventTime <- eventTime[eventTime > 0]
+    eventDoseTime <-  eventDoseTime[eventDoseTime > 0]
+    
+    split <- as.numeric(tapply(eventInd, tx, sum))
+    
+    # calculating the total number of doses given; focus on Ab arm; doses are given every 6 months, including enrollment
+    eventDoseTime_Ab <- eventDoseTime[tx == 1]
+    m <- ceiling(eventDoseTime_Ab/0.5)
+
+    return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, numOfDoses = sum(m)))
+  })
+  
+  return(df)
+}
+
