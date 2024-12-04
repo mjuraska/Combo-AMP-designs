@@ -9,7 +9,8 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-numOfDosesTab <- tibble("rate_pla" = numeric(), "n_target_cases" = numeric(), "AbSampleSize" = numeric(),
+numOfDosesTab <- tibble("rate_pla" = numeric(), "n_target_cases" = numeric(), 
+                        "n_ab" = numeric(), "n_pla" = numeric(),
                         "nullHR" = numeric(), "altHR" = numeric(), "tau" = numeric(), 
                         "minNumOfDoses" = numeric(),
                         "Q1NumOfDoses" = numeric(),
@@ -19,26 +20,42 @@ numOfDosesTab <- tibble("rate_pla" = numeric(), "n_target_cases" = numeric(), "A
                         "maxNumOfDoses" = numeric())
 
 # 2-arm designs and low-dose vs pla comparisons in 3-arm designs
-n_target_cases <- c(21, 22, 40, 135)
+# n_target_cases <- c(21, 22, 40, 135)
+# rate_pla <- 0.026
+# nullHR <- 0.75
+# altHR <- c(0.15, 0.15, 0.25, 0.35)
+# rate_cens <- 0.075
+# p_ab <- 0.5
+# p_pla <- 0.5
+# tau <- c(1, rep(1.5, 3))
+# iter <- 2000
+
+# high-dose vs pla comparisons in 3-arm designs
+n_target_cases <- c(34, 108)
 rate_pla <- 0.026
 nullHR <- 0.75
-altHR <- c(0.15, 0.15, 0.25, 0.35)
+altHR <- c(0.25, 0.35)
 rate_cens <- 0.075
-tau <- c(1, rep(1.5, 3))
+p_ab <- 1/3
+p_pla <- 2/3
+tau <- c(1.5, 1.5)
 iter <- 2000
 
-for (i in 1:4){
+for (i in 1:length(n_target_cases)){
   df <- oper_chars_eff_phase_dosesCalculation_twoArms(n_target_cases = n_target_cases[i],
                                                       rate_pla = rate_pla,
                                                       nullHR = nullHR,
                                                       altHR = altHR[i],
                                                       rate_cens = rate_cens,
+                                                      p_ab = p_ab,
+                                                      p_pla = p_pla,
                                                       tau = tau[i],
                                                       iter = iter)
   
   numOfDosesTab <- add_row(.data = numOfDosesTab, "rate_pla" = rate_pla,
                            "n_target_cases" = n_target_cases[i], 
-                           "AbSampleSize" = df$n_enrolled[1] / 2,
+                           "n_ab" = df$n_ab[1],
+                           "n_pla" = df$n_pla[1],
                            "nullHR" = nullHR, "altHR" = altHR[i], "tau" = tau[i], 
                            "minNumOfDoses" = min(df$numOfDoses),
                            "Q1NumOfDoses" = quantile(df$numOfDoses, probs = 0.25),

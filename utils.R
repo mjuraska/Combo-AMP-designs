@@ -34,7 +34,6 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
                                  rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter,
                                  minAtRisk = 150){
   
-  
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
          rate0 = rate_pla, rateC = rate_cens, tau = tau)
@@ -84,12 +83,15 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
     score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
     
-    # 1-sided Wald test
-    sfit <- summary(suppressWarnings(coxph(Surv(eventTime, eventInd) ~ tx)))
-    #warning is given when the number of cases is zero for the treatment group
-    stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
-    wald_pval <- pnorm(stat)
-    if(split[2] == 0){wald_pval <- score_pval}
+    if(split[2] == 0){
+      wald_pval <- score_pval
+    } else {
+      # 1-sided Wald test
+      sfit <- summary(suppressWarnings(coxph(Surv(eventTime, eventInd) ~ tx)))
+      #warning is given when the number of cases is zero for the treatment group
+      stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
+      wald_pval <- pnorm(stat)
+    }
     
     # 1-sided log-rank test: doesn't have correct size for testing
     # H0: HR >= nullHR, where nullHR < 1; it does have correct size for nullHR = 1
@@ -98,25 +100,27 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # pval <- pchisq(LR$chisq, length(LR$n)-1, lower.tail = FALSE) / 2
     # logrank_pval <- ifelse(HR < nullHR, pval, 1 - pval)
     
-    # 1-sided Wald test based on the Nelson-Aalen estimator for the cumulative
-    # incidence
-    data <- data.frame("eventTime" = eventTime, "eventInd" = eventInd, "tx" = tx)
-    cuminc_est <- naCumInc( data = data, futimeVar = "eventTime", eventVar = "eventInd", 
-                            groupVar = "tx", censor = list( minAtRisk = minAtRisk, time = max(eventTime[eventInd == 1])))
-    #    If *both* 'minAtRisk' and 'time'=t are specified, the time that satisfies
-    #    the 'minAtRisk' criteria will be determined, and then the *smaller* of that time and
-    #    time 't' will be used for censoring (and *that* value returned via 'censorTime'
-    cuminc_PE_est <- EffCIR(cuminc_est, refLvl = "0", cmpLvl="1", nullHypEff=1 - nullHR, test = "oneSided")
-    cuminc_pval <- cuminc_PE_est$tests$pvalue
-    # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
-    if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
+    # # 1-sided Wald test based on the Nelson-Aalen estimator for the cumulative
+    # # incidence
+    # data <- data.frame("eventTime" = eventTime, "eventInd" = eventInd, "tx" = tx)
+    # cuminc_est <- naCumInc( data = data, futimeVar = "eventTime", eventVar = "eventInd", 
+    #                         groupVar = "tx", censor = list( minAtRisk = minAtRisk, time = max(eventTime[eventInd == 1])))
+    # #    If *both* 'minAtRisk' and 'time'=t are specified, the time that satisfies
+    # #    the 'minAtRisk' criteria will be determined, and then the *smaller* of that time and
+    # #    time 't' will be used for censoring (and *that* value returned via 'censorTime'
+    # cuminc_PE_est <- EffCIR(cuminc_est, refLvl = "0", cmpLvl="1", nullHypEff=1 - nullHR, test = "oneSided")
+    # cuminc_pval <- cuminc_PE_est$tests$pvalue
+    # # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
+    # if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
     return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, pEvent1 = pEvent1, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
-                      wald_pval = wald_pval, cuminc_pval = cuminc_pval, 
+                      wald_pval = wald_pval, 
+                      # cuminc_pval = cuminc_pval, 
                       not_enrolled = not_enrolled, 
                       meanEventTime = mean(eventTime),
                       Q1EventTime = quantile(eventTime, probs = 0.25),
+                      medEventTime = quantile(eventTime, probs = 0.5),
                       Q3EventTime = quantile(eventTime, probs = 0.75),
                       maxEventTime = max(eventTime),
                       minEventTime = min(eventTime)))
@@ -178,16 +182,16 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
 oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_pla, nullHR, altHR, 
                                  rate_cens, p_ab = 0.5, p_pla = 0.5, tau, iter){
   
-  
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
          rate0 = rate_pla, rateC = rate_cens, tau = tau)
   
-  # sample size per arm under 1:1 allocation
-  n <- ceiling(n / 2)
+  # sample size in each arm
+  n_pla <- ceiling(n * p_pla)
+  n_ab <- ceiling(n * p_ab)
   
   # enrollment rate: 1000 participants/4 months
-  enrollPeriod <- 2 * n * (4 / 12) / 1000
+  enrollPeriod <- (n_ab + n_pla) * (4 / 12) / 1000
   
   n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
   
@@ -198,10 +202,10 @@ oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_p
   df <- plyr::ldply(1:iter, function(i){
     set.seed(i)
     
-    enrollTime <- runif(2 * n, max = enrollPeriod)
-    tx <- rep(0:1, each = n)
-    tm <- c(rexp(n, rate_pla), rexp(n, rate_pla * altHR))
-    cens <- rexp(2 * n, rate_cens)
+    enrollTime <- runif(n_pla + n_ab, max = enrollPeriod)
+    tx <- rep(0:1, c(n_pla, n_ab))
+    tm <- c(rexp(n_pla, rate_pla), rexp(n_ab, rate_pla * altHR))
+    cens <- rexp(n_pla + n_ab, rate_cens)
     eventTime <- pmin(tm, cens)
     eventInd <- as.numeric(tm <= cens)
     calTime <- enrollTime + eventTime
@@ -220,9 +224,8 @@ oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_p
     # calculating the total number of doses given; focus on Ab arm; doses are given every 6 months, including enrollment
     m <- ceiling(eventTime[tx == 1] / 0.5)
 
-    return(data.frame(iter = i, n_enrolled = 2 * n,  n1 = n1, numOfDoses = sum(m)))
+    return(data.frame(iter = i, n_pla = n_pla, n_ab = n_ab, n1 = n1, numOfDoses = sum(m)))
   })
   
   return(df)
 }
-
