@@ -51,7 +51,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
   enrollPeriod <- (n_pla + n_ab) * (4 / 12) / n_enroll_4m
   
   n1 <- n1(n_target_cases, hr = altHR, p1 = p_ab, p0 = p_pla)
-  cat("Expected number of events in the Ab arm (version 1):", n1, "\n")
+  #cat("Expected number of events in the Ab arm (version 1):", n1, "\n")
   
   rate1 <- rate_pla * altHR
   r1 <- rate1 / (rate1 + rate_cens)
@@ -149,7 +149,7 @@ duration_corr_exp_phase <- function(n_on_study, n_to_enroll,
                                     n_obs_cases_ab, n_target_cases_ab, 
                                     rate_pla, altHR, rate_cens, iter){
   
-  cat("The number on study at the start of cross-over:", n_on_study, "\n")
+  #cat("The number on study at the start of cross-over:", n_on_study, "\n")
   
   # enrollment rate: 1000 participants / 4 months
   enrollPeriod <- n_to_enroll * (4 / 12) / 1000
@@ -235,3 +235,61 @@ oper_chars_eff_phase_dosesCalculation_twoArms <- function(n_target_cases, rate_p
   
   return(df)
 }
+
+
+
+# Run the simulation ------------------------------------------------------
+simul <- function(n_target_cases,
+                  rate_pla,
+                  nullHR,
+                  altHR,
+                  altHRhigh,
+                  rate_cens,
+                  tau,
+                  iter,
+                  n_target_cases_ab){
+  df <- oper_chars_eff_phase(n_target_cases = n_target_cases,
+                             rate_pla = rate_pla,
+                             nullHR = nullHR,
+                             altHR = altHR,
+                             rate_cens = rate_cens,
+                             tau = tau,
+                             iter = iter)
+  power <- mean(df$wald_pval <= 0.025)
+  meanAnalysisTime <- mean(df$analysisTime)
+  notEnrolledSummary <- summary(df$not_enrolled)
+  # 2-arm design
+  n_on_study <- df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens
+  # 3-arm design
+  #n_on_study <- (5 / 4) * df$n_enrolled[1] - n_target_cases - altHR_high * (n_target_cases - df$n1[1]) / 2 - (5 / 4) * df$n_enrolled[1] * tau * rate_cens
+  
+  # 2-arm design
+  n_obs_cases_ab <- mean(df$n_cases_ab)
+  # 3-arm design
+  #n_obs_cases_ab <- mean(df$n_cases_ab) + altHR_high * (n_target_cases - mean(df$n_cases_ab)) / 2
+  
+  df2 <- duration_corr_exp_phase(n_on_study = n_on_study,
+                                 n_to_enroll = n_to_enroll,
+                                 n_obs_cases_ab = n_obs_cases_ab,
+                                 n_target_cases_ab = n_target_cases_ab,
+                                 rate_pla = rate_pla,
+                                 altHR = altHR_high,
+                                 rate_cens = rate_cens,
+                                 iter = iter)
+  # check the time when the target number of events is accrued in the Ab arm
+  expansionAnalysisTime <- mean(df2$analysisTime)
+  expansionSamplesize <- round(df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens + n_to_enroll, 0)
+  
+  ans_primary <- c(mean(df$minEventTime), mean(df$Q1EventTime), mean(df$meanEventTime), mean(df$Q3EventTime), mean(df$maxEventTime))
+  names(ans_primary) <- c("min", "Q1", "mean", "Q3", "max")
+  durationPrimary <- round(ans_primary, 2)
+  # distribution of follow-up time in the correlate expansion
+  ans_expansion <- c(mean(df2$minEventTime), mean(df2$Q1EventTime), mean(df2$meanEventTime), mean(df2$Q3EventTime), mean(df2$maxEventTime))
+  names(ans_expansion) <- c("min", "Q1", "mean", "Q3", "max")
+  durationCorrelate <- round(ans_expansion, 2)
+  return(list("n" = df$n_enrolled[1], n1_ab <- df$n1[1],"power" = power, "primaryAnalysisTime" = meanAnalysisTime,
+              "primaryNotEnrolled" = notEnrolledSummary, "expansionSamplesize" = expansionSamplesize,
+              "expansionAnalysisTime" = expansionAnalysisTime, "durationPrimary" = ans_primary,
+              "durationExpansion"= ans_expansion))
+}
+
