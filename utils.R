@@ -36,7 +36,7 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
 oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR, 
                                  rate_cens, p_ab = 0.5, p_pla = 0.5, 
                                  n_enroll_4m = 1000, tau, iter, 
-                                 minAtRisk = 150){
+                                 minAtRisk = 150, size = 0.10){
   
   # total sample size
   n <- N(n_target_cases, p1 = p_ab, p0 = p_pla, rate1 = rate_pla * altHR, 
@@ -85,7 +85,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     rownames(df) <- c("placebo", "Ab")
     colnames(df) <- c("nonEvent", "event")
     df2 <- df[c(2, 1), c(2, 1)]
-    CIscore <- RelRisk(df2, method = "score", conf.level = 0.95)
+    CIscore <- RelRisk(df2, method = "score", conf.level = 1 - size)
     score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
     
     if(split[2] == 0){

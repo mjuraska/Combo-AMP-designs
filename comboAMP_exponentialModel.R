@@ -7,16 +7,16 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-design <- "3arm"
-n_target_cases <- 47
+design <- "2arm"
+n_target_cases <- 15
 rate_pla <- 0.032
 nullHR <- 0.7
-altHR <- 0.25
+altHR <- 0.1
 rate_cens <- 0.075
 p_ab <- 0.5
 p_pla <- 0.5
-n_enroll_4m <- 800
-tau <- 1.5
+n_enroll_4m <- 1000
+tau <- 1
 iter <- 2000
 # correlates expansion phase
 n_to_enroll <- 5000
@@ -38,8 +38,7 @@ df <- oper_chars_eff_phase(n_target_cases = n_target_cases,
                            iter = iter)
 
 # power
-mean(df$wald_pval <= 0.025)
-mean(df$cuminc_pval <= 0.025)
+mean(df$wald_pval <= 0.05)
 mean(df$meanEventTime)
 # check the time when the target number of events is accrued
 summary(df$analysisTime)
@@ -70,8 +69,7 @@ df2 <- duration_corr_exp_phase(n_on_study = n_on_study,
 # check the time when the target number of events is accrued in the Ab arm
 summary(df2$analysisTime)
 #Correlates expansion sample size
-
-round(df$n_enrolled[1] - n_target_cases - df$n_enrolled[1] * tau * rate_cens + n_to_enroll, 0)
+n_on_study  + n_to_enroll
 # are there iterations where the target event count in the Ab arm was reached
 # before the enrollment was complete?
 summary(df2$not_enrolled)
