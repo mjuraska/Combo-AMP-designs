@@ -7,11 +7,11 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-design <- "2arm"
-n_target_cases <- 15
-rate_pla <- 0.032
-nullHR <- 0.7
-altHR <- 0.1
+design <- "3arm"
+n_target_cases <- 43
+rate_pla <- 0.026
+nullHR <- 0.75
+altHR <- 0.25
 rate_cens <- 0.075
 p_ab <- 0.5
 p_pla <- 0.5

@@ -20,25 +20,26 @@ numOfDosesTab <- tibble("rate_pla" = numeric(), "n_target_cases" = numeric(),
                         "maxNumOfDoses" = numeric())
 
 # 2-arm designs and low-dose vs pla comparisons in 3-arm designs
-# n_target_cases <- c(21, 22, 40, 135)
+# n_target_cases <- c(23, 23, 43, 135)
 # rate_pla <- 0.026
 # nullHR <- 0.75
 # altHR <- c(0.15, 0.15, 0.25, 0.35)
 # rate_cens <- 0.075
 # p_ab <- 0.5
 # p_pla <- 0.5
+# n_enroll_4m <- c(1000, 1000, 800, 800)
 # tau <- c(1, rep(1.5, 3))
 # iter <- 2000
 
 # high-dose vs pla comparisons in 3-arm designs
-n_target_cases <- c(34, 108)
+n_target_cases <- c(37, 108)
 rate_pla <- 0.026
 nullHR <- 0.75
-altHR <- c(0.25, 0.35)
+altHR <- c(0.15, 0.15)
 rate_cens <- 0.075
 p_ab <- 1/3
 p_pla <- 2/3
-n_enroll_4m <- 1000
+n_enroll_4m <- c(600, 600)
 tau <- c(1.5, 1.5)
 iter <- 2000
 
@@ -50,7 +51,7 @@ for (i in 1:length(n_target_cases)){
                                                       rate_cens = rate_cens,
                                                       p_ab = p_ab,
                                                       p_pla = p_pla,
-                                                      n_enroll_4m = n_enroll_4m,
+                                                      n_enroll_4m = n_enroll_4m[i],
                                                       tau = tau[i],
                                                       iter = iter)
   
