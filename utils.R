@@ -138,6 +138,102 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
   return(df)
 }
 
+oper_chars_eff_phase_3arm <- function(n_target_cases, rate_pla, nullHR, altHR_h, 
+                                      altHR_l, rate_cens, p_ab_h = 0.2, 
+                                      p_ab_l = 0.4, p_pla = 0.4, 
+                                      n_enroll_4m = 1000, tau, iter, 
+                                      size = 0.05){
+  
+  # Ab low + placebo sample size
+  n <- N(n_target_cases, p1 = p_ab_l / (p_ab_l + p_pla), 
+         p0 = p_pla / (p_ab_l + p_pla), rate1 = rate_pla * altHR_l, 
+         rate0 = rate_pla, rateC = rate_cens, tau = tau)
+  n_total <- n / (p_ab_l + p_pla)
+  
+  # sample size in each arm
+  n_ab_h <- ceiling(n_total * p_ab_h)
+  n_ab_l <- ceiling(n_total * p_ab_l)
+  n_pla <- ceiling(n_total * p_pla)
+  
+  n_total <- n_ab_h + n_ab_l + n_pla
+  
+  cat("Total sample size for the 2 arms included in the comparison:", n_ab_l + n_pla, "\n",
+      "Total sample size for all 3 arms:", n_total, "\n")
+  
+  # enrollment rate: 'n_enroll_4m' participants / 4 months
+  enrollPeriod <- n_total * (4 / 12) / n_enroll_4m
+  
+  rate1 <- rate_pla * altHR_l
+  r1 <- rate1 / (rate1 + rate_cens)
+  pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
+  cat("Expected number of events in the low-dose Ab arm (version 2):", n_ab_l * pEvent1, "\n")
+  
+  df <- plyr::ldply(1:iter, function(i){
+    set.seed(i)
+    
+    enrollTime <- runif(n_total, max = enrollPeriod)
+    FPFI <- min(enrollTime)
+    tx <- rep(0:2, c(n_pla, n_ab_l, n_ab_h))
+    tm <- c(rexp(n_pla, rate_pla), 
+            rexp(n_ab_l, rate_pla * altHR_l),
+            rexp(n_ab_h, rate_pla * altHR_h))
+    cens <- rexp(n_total, rate_cens)
+    eventTime <- pmin(tm, cens)
+    eventInd <- as.numeric(tm <= cens)
+    calTime <- enrollTime + eventTime
+    analysisTime <- sort(calTime[eventInd == 1 & tx < 2])[n_target_cases]
+    eventInd <- ifelse(calTime > analysisTime, 0, eventInd)
+    calTime <- pmin(calTime, analysisTime)
+    eventTime <- pmax(calTime - enrollTime, 0)
+    
+    not_enrolled <- sum(eventTime == 0)
+    tx <- tx[eventTime > 0]
+    eventInd <- eventInd[eventTime > 0]
+    eventTime <- eventTime[eventTime > 0]
+    
+    split <- as.numeric(tapply(eventInd, tx, sum))
+    
+    # binomial score test 
+    df <- table(tx[tx < 2], eventInd[tx < 2])
+    rownames(df) <- c("placebo", "Ab")
+    colnames(df) <- c("nonEvent", "event")
+    df2 <- df[c(2, 1), c(2, 1)]
+    CIscore <- RelRisk(df2, method = "score", conf.level = 1 - size)
+    score_pval <- ifelse(CIscore["upr.ci"] < nullHR, 0.001, 1)
+    
+    if(split[2] == 0){
+      wald_pval <- score_pval
+    } else {
+      # 1-sided Wald test
+      df_lp <- data.frame(tx, eventTime, eventInd) %>%
+        filter(tx < 2)
+      sfit <- summary(suppressWarnings(coxph(Surv(eventTime, eventInd) ~ tx, data = df_lp)))
+      #warning is given when the number of cases is zero for the treatment group
+      stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
+      wald_pval <- pnorm(stat)
+    }
+    
+    analysisTime <- analysisTime - FPFI
+    
+    n_doses_ab_h <- sum(ceiling(eventTime[tx == 2] / 0.5))
+    n_doses_ab_l <- sum(ceiling(eventTime[tx == 1] / 0.5))
+    
+    return(data.frame(iter = i, n_enrolled = n_total,  e_n_ab_l = n_ab_l * pEvent1, 
+                      analysisTime = analysisTime, 
+                      n_cases_pla = split[1], 
+                      n_cases_ab_l = split[2],
+                      n_cases_ab_h = split[3],
+                      wald_pval = wald_pval, 
+                      not_enrolled = not_enrolled, 
+                      meanEventTime = mean(eventTime),
+                      n_doses_ab_h = n_doses_ab_h,
+                      n_doses_ab_l = n_doses_ab_l))
+  })
+  
+  return(df)
+}
+
+
 plot_time_to_analysis <- function(df, path){
   m <- mean(df$analysisTime)
   breaks <- c(pretty(df$analysisTime), m)
@@ -183,6 +279,76 @@ plot_fu_time_eff_phase <- function(df, path){
   
   return(invisible(NULL))
 }
+
+plot_case_split_eff_phase <- function(df, ab_arm = NULL, path){
+  df <- df %>%
+    group_by(n_cases_ab, n_cases_pla) %>%
+    summarise(p = n() / nrow(df)) %>%
+    ungroup() %>%
+    mutate(split = paste0(n_cases_ab, ":", n_cases_pla),
+           split = factor(split, levels = split))
+  
+  p <- ggplot(df, aes(x = split, y = p)) +
+    geom_col() +
+    xlab("Low-Dose Ab:Placebo Endpoint Split at Primary Analysis") +
+    ylab("Probability") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
+          panel.border = element_blank())
+  
+  ggsave(here::here(path, paste0("case_split_eff_phase.pdf")), 
+         plot = p, width = 6, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+plot_case_ab_h_eff_phase <- function(df, path){
+  df <- df %>%
+    group_by(n_cases_ab_h) %>%
+    summarise(p = n() / nrow(df)) %>%
+    ungroup()
+  
+  p <- ggplot(df, aes(x = factor(n_cases_ab_h), y = p)) +
+    geom_col() +
+    xlab("High-Dose Ab Arm Endpoint Count at Primary Analysis") +
+    ylab("Probability") +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, paste0("case_split_ab_h_eff_phase.pdf")), 
+         plot = p, width = 6, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+plot_n_doses <- function(df, var_name, path,
+                         x_lab = "Number of Received Low Doses of Ab by Primary Analysis",
+                         title = "Low-Dose Arm",
+                         file_name){
+  m <- mean(df[, var_name])
+  # breaks <- c(pretty(df[, var_name]), m)
+  # labels <- c(pretty(df[, var_name]), round(m, 1))
+  
+  p <- ggplot(df, aes(x = .data[[var_name]], y = ..density..)) +
+    geom_histogram(fill = "cornsilk", color = "gray60") +
+    geom_density() +
+    geom_vline(xintercept = m, linetype = "dashed") +
+    annotate("text", x = m, y = Inf, hjust = -0.07, vjust = 1.5, 
+             label = paste0("Mean = ", round(m, 0)), size = 2.8) +
+    scale_x_continuous(breaks = pretty(df[, var_name])) +
+    xlab(x_lab) +
+    ylab("Density") +
+    ggtitle(title) +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, file_name), plot = p, 
+         width = 4.4, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+
 
 #' @param n_on_study number of originally enrolled participants at risk at the
 #'   time of cross-over
