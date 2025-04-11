@@ -62,6 +62,7 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     set.seed(i)
     
     enrollTime <- runif(n_pla + n_ab, max = enrollPeriod)
+    FPFI <- min(enrollTime)
     tx <- rep(0:1, c(n_pla, n_ab))
     tm <- c(rexp(n_pla, rate_pla), rexp(n_ab, rate_pla * altHR))
     cens <- rexp(n_pla + n_ab, rate_cens)
@@ -118,6 +119,8 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
     # # NA is given when the number of cases is less than or equal to 1 for the treatment group sometimes
     # if(is.na(cuminc_pval)){cuminc_pval <- score_pval}
     
+    analysisTime <- analysisTime - FPFI
+    
     return(data.frame(iter = i, n_enrolled = n_pla + n_ab,  n1 = n1, 
                       pEvent1 = pEvent1, analysisTime = analysisTime, 
                       n_cases_pla = split[1], n_cases_ab = split[2],
@@ -133,6 +136,52 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
   })
   
   return(df)
+}
+
+plot_time_to_analysis <- function(df, path){
+  m <- mean(df$analysisTime)
+  breaks <- c(pretty(df$analysisTime), m)
+  labels <- c(pretty(df$analysisTime), round(m, 1))
+  
+  p <- ggplot(df, aes(x = analysisTime, y = ..density..)) +
+    geom_histogram(fill = "cornsilk", color = "gray60") +
+    geom_density() +
+    geom_vline(xintercept = m, linetype = "dashed") +
+    annotate("text", x = m, y = Inf, hjust = -0.07, vjust = 1.5, 
+             label = "Mean", size = 2.8) +
+    scale_x_continuous(breaks = breaks, labels = labels) +
+    xlab("Time (Years) from FPFI to Primary Analysis") +
+    ylab("Density") +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, "time_to_analysis.pdf"), plot = p, 
+         width = 4.5, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+plot_fu_time_eff_phase <- function(df, path){
+  m <- mean(df$meanEventTime)
+  breaks <- c(pretty(df$meanEventTime), m)
+  labels <- c(pretty(df$meanEventTime), "")
+  
+  p <- ggplot(df, aes(x = meanEventTime, y = ..density..)) +
+    geom_histogram(fill = "cornsilk", color = "gray60") +
+    geom_density() +
+    geom_vline(xintercept = m, linetype = "dashed") +
+    annotate("text", x = m, y = Inf, hjust = -0.07, vjust = 1.5, 
+             label = "Mean", size = 2.8) +
+    scale_x_continuous(breaks = breaks, labels = labels) +
+    xlab("Average Participant Follow-up Duration (Years)\nin Efficacy Phase") +
+    ylab("Density") +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, "fu_time_eff_phase.pdf"), plot = p, 
+         width = 4.5, height = 4.5)
+  
+  return(invisible(NULL))
 }
 
 #' @param n_on_study number of originally enrolled participants at risk at the

@@ -16,8 +16,10 @@ rate_cens <- 0.075
 p_ab <- 0.5
 p_pla <- 0.5
 n_enroll_4m <- 1000
-tau <- 1
-iter <- 2000
+tau <- 1.5
+size <- 0.025
+iter <- 1000
+path <- "output"
 # correlates expansion phase
 n_to_enroll <- 5000
 n_target_cases_ab <- 35
@@ -37,8 +39,16 @@ df <- oper_chars_eff_phase(n_target_cases = n_target_cases,
                            tau = tau,
                            iter = iter)
 
+plot_time_to_analysis(df, path = path)
+plot_fu_time_eff_phase(df, path = path)
+
+df1 <- df %>%
+  group_by(n_cases_ab, n_cases_pla) %>%
+  summarise(p = n() / nrow(df))
+df1
+
 # power
-mean(df$wald_pval <= 0.05)
+mean(df$wald_pval <= size)
 mean(df$meanEventTime)
 # check the time when the target number of events is accrued
 summary(df$analysisTime)
