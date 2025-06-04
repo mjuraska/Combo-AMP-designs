@@ -4,7 +4,7 @@ source(here::here("cuminc_functions.R"))
 
 # compute total events for adequate power under a given design alternative
 # (Schoenfeld, 1983, Biometrics)
-((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.7) - log(0.25))^2)
+((qnorm(0.975) + qnorm(0.8))^2) / ((1/4) * (log(0.7) - log(0.2))^2)
 
 # get number of events in the numerator given
 # total events 'n', hazard ratio 'hr', and probabilities 'p1' and 'p0' of
@@ -166,7 +166,11 @@ oper_chars_eff_phase_3arm <- function(n_target_cases, rate_pla, nullHR, altHR_h,
   rate1 <- rate_pla * altHR_l
   r1 <- rate1 / (rate1 + rate_cens)
   pEvent1 <- r1 - r1 * exp(-(rate1 + rate_cens) * tau)
-  cat("Expected number of events in the low-dose Ab arm (version 2):", n_ab_l * pEvent1, "\n")
+  e_n_ab_l <- round(n_ab_l * pEvent1, 0)
+  e_n_pla <- n_target_cases - e_n_ab_l
+  cat("Expected number of events in the high-dose Ab arm (version 2):", round(altHR_h * e_n_pla * p_ab_h / p_pla, 0), "\n")
+  cat("Expected number of events in the low-dose Ab arm (version 2):", e_n_ab_l, "\n")
+  cat("Expected number of events in the placebo arm (version 2):", e_n_pla, "\n")
   
   df <- plyr::ldply(1:iter, function(i){
     set.seed(i)
