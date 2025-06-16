@@ -4,7 +4,7 @@ source(here::here("cuminc_functions.R"))
 
 # compute total events for adequate power under a given design alternative
 # (Schoenfeld, 1983, Biometrics)
-((qnorm(0.975) + qnorm(0.8))^2) / ((1/4) * (log(0.7) - log(0.2))^2)
+((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.7) - log(0.3))^2)
 
 # get number of events in the numerator given
 # total events 'n', hazard ratio 'hr', and probabilities 'p1' and 'p0' of
@@ -141,14 +141,15 @@ oper_chars_eff_phase <- function(n_target_cases, rate_pla, nullHR, altHR,
 oper_chars_eff_phase_3arm <- function(n_target_cases, rate_pla, nullHR, altHR_h, 
                                       altHR_l, rate_cens, p_ab_h = 0.2, 
                                       p_ab_l = 0.4, p_pla = 0.4, 
-                                      n_enroll_4m = 1000, tau, iter, 
+                                      n_enroll_m = NULL, tau, iter, 
                                       size = 0.05){
   
   # Ab low + placebo sample size
-  n <- N(n_target_cases, p1 = p_ab_l / (p_ab_l + p_pla), 
-         p0 = p_pla / (p_ab_l + p_pla), rate1 = rate_pla * altHR_l, 
+  n <- N(n_target_cases, p1 = p_ab_l / (p_ab_l + p_pla),
+         p0 = p_pla / (p_ab_l + p_pla), rate1 = rate_pla * altHR_l,
          rate0 = rate_pla, rateC = rate_cens, tau = tau)
   n_total <- n / (p_ab_l + p_pla)
+  # n_total <- 10000
   
   # sample size in each arm
   n_ab_h <- ceiling(n_total * p_ab_h)
@@ -160,8 +161,12 @@ oper_chars_eff_phase_3arm <- function(n_target_cases, rate_pla, nullHR, altHR_h,
   cat("Total sample size for the 2 arms included in the comparison:", n_ab_l + n_pla, "\n",
       "Total sample size for all 3 arms:", n_total, "\n")
   
-  # enrollment rate: 'n_enroll_4m' participants / 4 months
-  enrollPeriod <- n_total * (4 / 12) / n_enroll_4m
+  # enrollment rate: 'n_enroll_m' participants / month
+  if (is.null(n_enroll_m)){
+    enrollPeriod <- 1.5
+  } else {
+    enrollPeriod <- n_total * (1 / 12) / n_enroll_m  
+  }
   
   rate1 <- rate_pla * altHR_l
   r1 <- rate1 / (rate1 + rate_cens)
