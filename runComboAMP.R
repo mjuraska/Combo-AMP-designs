@@ -7,63 +7,64 @@ source(here::here("utils.R"))
 
 # Input parameters --------------------------------------------------------
 
-# 2-arm design
-design <- "3arm"
-n_target_cases <- 72
+ceiling(((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.4) - log(0.1))^2))
+n_target_cases <- 43
 rate_pla <- 0.0075
-nullHR <- 0.7
-altHR <- 0.3
+nullHR <- 0.4
+altHR_h <- 0.1
+altHR_l <- 0.3
 rate_cens <- 0.075
-# p_ab <- 0.5
-# p_pla <- 0.5
-n_enroll_m <- NULL
-tau <- 1.5
-size <- 0.025
-iter <- 2000
-path <- "output"
-
-# 3-arm design
 p_ab_h <- 1 / 3
 p_ab_l <- 1 / 3
 p_pla <- 1 / 3
-altHR_high <- 0.15
+n_enroll_m <- NULL
+tau <- 1.5
+alpha_1sided <- 0.025
+info_fractions <- c(0.75, 1)
+iter <- 1000
+n_cores <- 16
+pwr <- 0.9
+path <- "output/2025-07-29"
 
-# correlates expansion phase
-n_to_enroll <- 5000
-n_target_cases_ab <- 35
 
+# Find the target endpoint count ------------------------------------------
 
-# Run the simulation ------------------------------------------------------
+registerDoParallel(cores = n_cores)
 
-# df <- oper_chars_eff_phase(n_target_cases = n_target_cases,
-#                            rate_pla = rate_pla,
-#                            nullHR = nullHR,
-#                            altHR = altHR,
-#                            rate_cens = rate_cens,
-#                            p_ab = p_ab,
-#                            p_pla = p_pla,
-#                            n_enroll_4m = n_enroll_4m,
-#                            tau = tau,
-#                            iter = iter)
+# for (n in n_target_cases:250){
+#   df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
+#                              altHR_l = altHR_l, info_fractions = info_fractions,
+#                              alpha_1sided = alpha_1sided,
+#                              n_target_cases = n,
+#                              rate_pla = rate_pla,  rate_cens = rate_cens,
+#                              p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
+#                              n_enroll_m = n_enroll_m, tau = tau, iter = iter,
+#                              n_cores = n_cores, verbose = FALSE)
+#   power <- mean(df$reject_H0)
+#   cat("n =", n, "; power =", power, "\n")
 # 
-# plot_time_to_analysis(df, path = path)
+#   if (power >= pwr){
+#     break
+#   }
+# }
+
+
+# Get sample size and endpoint splits -------------------------------------
+
+df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
+                           altHR_l = altHR_l, info_fractions = info_fractions, 
+                           alpha_1sided = alpha_1sided, 
+                           n_target_cases = n_target_cases,
+                           rate_pla = rate_pla,  rate_cens = rate_cens,
+                           p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
+                           n_enroll_m = n_enroll_m, tau = tau, iter = iter,
+                           n_cores = n_cores, verbose = TRUE)
+mean(df$reject_H0)
+
+plot_time_to_end_stage1(df, path = path)
 # plot_fu_time_eff_phase(df, path = path)
-# plot_case_split_eff_phase(df, path = path)
-
-df <- oper_chars_eff_phase_3arm(n_target_cases = n_target_cases,
-                                rate_pla = rate_pla,
-                                nullHR = nullHR,
-                                altHR_l = altHR,
-                                altHR_h = altHR_high,
-                                rate_cens = rate_cens,
-                                p_ab_h = p_ab_h,
-                                p_ab_l = p_ab_l,
-                                p_pla = p_pla,
-                                n_enroll_m = n_enroll_m,
-                                tau = tau,
-                                iter = iter)
-
-# plot_case_ab_h_eff_phase(df, path = path)
+plot_h_vs_p_case_split_end_stage1(df, path = path)
+plot_l_case_count_end_stage1(df, path = path)
 # plot_n_doses(df, var_name = "n_doses_ab_h", path = path,
 #              x_lab = "Number of Administered High Doses of Ab\nby Primary Analysis",
 #              title = "High-Dose Ab Arm", file_name = "n_doses_ab_h.pdf")
@@ -72,7 +73,7 @@ df <- oper_chars_eff_phase_3arm(n_target_cases = n_target_cases,
 #              title = "Low-Dose Ab Arm", file_name = "n_doses_ab_l.pdf")
 
 # power
-mean(df$wald_pval <= size)
+mean(df$pval <= size)
 mean(df$meanEventTime)
 # check the time when the target number of events is accrued
 summary(df$analysisTime)
