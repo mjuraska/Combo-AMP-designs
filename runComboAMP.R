@@ -1,52 +1,31 @@
 # declare the project root
-here::i_am("comboAMP_exponentialModel.R")
+here::i_am("runComboAMP.R")
 
 library(tidyverse)
+source(here::here("param.R"))
 source(here::here("utils.R"))
-
-
-# Input parameters --------------------------------------------------------
-
-ceiling(((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.4) - log(0.1))^2))
-n_target_cases <- 43
-rate_pla <- 0.0075
-nullHR <- 0.4
-altHR_h <- 0.1
-altHR_l <- 0.3
-rate_cens <- 0.075
-p_ab_h <- 1 / 3
-p_ab_l <- 1 / 3
-p_pla <- 1 / 3
-n_enroll_m <- NULL
-tau <- 1.5
-alpha_1sided <- 0.025
-info_fractions <- c(0.75, 1)
-iter <- 1000
-n_cores <- 16
-pwr <- 0.9
-path <- "output/2025-07-29"
 
 
 # Find the target endpoint count ------------------------------------------
 
 registerDoParallel(cores = n_cores)
 
-# for (n in n_target_cases:250){
-#   df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
-#                              altHR_l = altHR_l, info_fractions = info_fractions,
-#                              alpha_1sided = alpha_1sided,
-#                              n_target_cases = n,
-#                              rate_pla = rate_pla,  rate_cens = rate_cens,
-#                              p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
-#                              n_enroll_m = n_enroll_m, tau = tau, iter = iter,
-#                              n_cores = n_cores, verbose = FALSE)
-#   power <- mean(df$reject_H0)
-#   cat("n =", n, "; power =", power, "\n")
-# 
-#   if (power >= pwr){
-#     break
-#   }
-# }
+for (n in n_target_cases:250){
+  df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
+                             altHR_l = altHR_l, info_fractions = info_fractions,
+                             alpha_1sided = alpha_1sided,
+                             n_target_cases = n,
+                             rate_pla = rate_pla,  rate_cens = rate_cens,
+                             p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
+                             n_enroll_m = n_enroll_m, tau = tau, iter = iter,
+                             n_cores = n_cores, verbose = FALSE)
+  power <- mean(df$reject_H0)
+  cat("n =", n, "; power =", power, "\n")
+
+  if (power >= pwr){
+    break
+  }
+}
 
 
 # Get sample size and endpoint splits -------------------------------------
