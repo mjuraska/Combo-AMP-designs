@@ -23,9 +23,9 @@ dat <- read.csv("/trials/vaccine/p704/analysis/manuscripts/NeutTiterBiomarker/da
   select(log10_ic80_comb)
 
 
-# Get density ratio model coefficients under PE(0) = 0 --------------------
+# Get density ratio model coefficients under PE(log10(IC80)=1) = 0 --------
 
-# density estimate of log10(IC80_comb) in placebo arm
+# density estimate of log10(IC80_comb) against 704 placebo viruses
 dens <- density(dat$log10_ic80_comb, n = 1000)
 plot(dens)
 
@@ -54,26 +54,89 @@ df_dens <- data.frame(tx = rep(0:1, each = length(dens$x)),
                                dens$y * exp(beta * (dens$x - 1) - log(altHR)))) %>%
   filter(v >= -3, v <= 1)
 
+
+# Plot PE by log10(IC80) --------------------------------------------------
+
 p <- ggplot() +
   geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
-  annotate("text", x = min(df$v), y = 0.8, hjust = 0.05, vjust = -0.6,
+  annotate("text", x = min(df_ve$v), y = 0.8, hjust = 0.05, vjust = -0.6,
            label = "Overall PE (Ab high + Ab low vs. placebo)", size = 2.3) +
   geom_line(aes(x = v, y = dens, group = factor(tx), color = factor(tx)), 
             data = df_dens) +
   scale_color_manual(values = c("blue1", "magenta"), 
                      labels = c("Placebo", "Ab high + Ab low"),
                      name = "PDF") +
-  geom_line(aes(x = v, y = ve), data = df_ve, size = 1) +
+  geom_line(aes(x = v, y = ve), data = df_ve, linewidth = 1.2) +
   scale_x_continuous(breaks = -3:1, labels = 10^(-3:1)) +
   scale_y_continuous(breaks = seq(0, 1, by = 0.25), 
                      labels = seq(0, 1, by = 0.25) * 100) +
-  labs(x = "Combination IC80 of Combo-AMP Regimen", 
+  labs(x = "Combination IC80 of Combo-AMP Regimen\nagainst Autologous Virus", 
        y = "Prevention Efficacy (%)") +
   theme_bw() + 
   theme(legend.position = "bottom")
 
-ggsave(here::here(file.path(path, "truePEbyLog10combIC80.pdf")), plot = p, height = 5, width = 5)
+ggsave(here::here(file.path(path, "truePEbyLog10combIC80.pdf")), plot = p, height = 5, width = 4.9)
 
 
-# Sample from the support using the estimated density as weights
-samples <- sample(dens$x, size = 1000, replace = TRUE, prob = dens$y)
+# Plot PE by PT80 ---------------------------------------------------------
+
+p <- ggplot() +
+  geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
+  annotate("text", x = max(-df_ve$v), y = 0.8, hjust = 1.05, vjust = 1.6,
+           label = "Overall PE (Ab high + Ab low vs. placebo)", size = 2.3) +
+  geom_line(aes(x = -v, y = dens, group = factor(tx), color = factor(tx)),
+            data = df_dens) +
+  scale_color_manual(values = c("blue1", "magenta"),
+                     labels = c("Placebo", "Ab high + Ab low"),
+                     name = "PDF") +
+  geom_line(aes(x = -v, y = ve), data = df_ve, linewidth = 1.2) +
+  scale_x_continuous(breaks = -1:3, labels = 20 / 10^(1:-3)) +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.25), 
+                     labels = seq(0, 1, by = 0.25) * 100) +
+  labs(x = "Combination PT80 of Combo-AMP Regimen\nagainst Autologous Virus", 
+       y = "Prevention Efficacy (%)") +
+  theme_bw() + 
+  theme(legend.position = "bottom")
+
+ggsave(here::here(file.path(path, "truePEbycombPT80.pdf")), plot = p, height = 5, width = 4.9)
+
+
+# Run the simulation ------------------------------------------------------
+
+registerDoParallel(cores = n_cores)
+
+dens <- density(dat$log10_ic80_comb, n = 1000)
+
+p <- list()
+k <- 1
+for (n_h_l in c(25, 50, 75)){
+  l <- est_PE_by_PT80(n_total = n_total, p_pla = p_pla, p_ab_l = p_ab_l, 
+                      p_ab_h = p_ab_h, rate_pla = rate_pla, altHR_l = altHR_l,
+                      altHR_h = altHR_h, rate_cens = rate_cens, n_target_cases_h_l = n_h_l,
+                      dens = dens, beta = beta, iter = iter)
+  
+  idx <- which(sapply(l, function(x){ is.character(x) }))
+  if (length(idx) > 0){ l <- l[-idx] }
+  df <- do.call(rbind, l)
+  
+  p[[k]] <- ggplot() +
+    geom_line(aes(x = -mark, y = TE, group = iter), data = df, alpha = 0.05) +
+    geom_line(aes(x = -v, y = ve), data = df_ve, linewidth = 1.2, color = "red") +
+    coord_cartesian(xlim = c(-1, 3), ylim = c(0, 1)) +
+    scale_x_continuous(breaks = -1:3, labels = 20 / 10^(1:-3)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.25), 
+                       labels = seq(0, 1, by = 0.25) * 100) +
+    labs(x = "Combination PT80 of Combo-AMP Regimen\nagainst Autologous Virus", 
+         y = "Est. Prevention Efficacy (%)",
+         title = paste0("High-Ab + Low-Ab Endpoint Count = ", n_h_l)) +
+    theme_bw()
+  
+  ggsave(here::here(file.path(path, paste0("estPEbycombPT80_target_h_l=", n_h_l, ".pdf"))), 
+         plot = p[[k]], height = 5, width = 5)
+  k <- k + 1
+}
+
+combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
+ggsave(here::here(path, "estPEbycombPT80.pdf"), plot = combined_p, 
+       height = 5, width = 15)
+

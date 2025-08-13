@@ -5,11 +5,8 @@ library(iterators)
 library(parallel)
 library(doParallel)
 library(doRNG)
-# source(here::here("cuminc_functions.R"))
-
-# compute total events for adequate power under a given design alternative
-# (Schoenfeld, 1983, Biometrics)
-
+library(sievePH)
+library(patchwork)
 
 # get number of events in the numerator given
 # total events 'n', hazard ratio 'hr', and probabilities 'p1' and 'p0' of
@@ -85,8 +82,10 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
                                  rate_cens, p_ab_h = 0.2, 
                                  p_ab_l = 0.4, p_pla = 0.4, 
                                  n_enroll_m = NULL, tau, iter, n_cores,
-                                 verbose = TRUE){
+                                 verbose = TRUE, seed = 3291){
   compare <- match.arg(compare)
+  
+  set.seed(seed)
   
   out <- foreach(i = 1:iter) %dorng% {
     source(here::here("utils.R"))
@@ -136,8 +135,6 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
     } else {
       msg <- NA
     }
-    
-    set.seed(i)
     
     enrollTime <- runif(n_total, max = enrollPeriod)
     FPFI <- min(enrollTime)
@@ -204,6 +201,96 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
     out <- do.call(rbind, lapply(out, "[[", "dat"))
   } else {
     out <- do.call(rbind, out)  
+  }
+  
+  return(out)
+}
+
+est_PE_by_PT80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h, 
+                           rate_pla, altHR_l, altHR_h, rate_cens,
+                           n_target_cases_h_l, dens, beta, conf_level = 0.95, 
+                           iter, seed = 3291){
+  set.seed(seed)
+  
+  # dens$y <- dens$y[dens$x < 1]
+  # dens$x <- dens$x[dens$x < 1]
+  
+  out <- foreach(i = 1:iter) %dorng% {
+    source(here::here("utils.R"))
+    
+    # sample size in each arm
+    n_ab_h <- round(n_total * p_ab_h, 0)
+    n_ab_l <- round(n_total * p_ab_l, 0)
+    n_pla <- round(n_total * p_pla, 0)
+    n_total <- n_ab_h + n_ab_l + n_pla
+    
+    altHR <- (altHR_h * p_ab_h + altHR_l * p_ab_l) / (p_ab_h + p_ab_l)
+    
+    # enrollment rate: 'n_enroll_m' participants / month
+    if (is.null(n_enroll_m)){
+      enrollPeriod <- 1.5
+    } else {
+      enrollPeriod <- (n_total / n_enroll_m) / 12
+    }
+    
+    # simulate trial data
+    enrollTime <- runif(n_total, max = enrollPeriod)
+    FPFI <- min(enrollTime)
+    enrollTime <- enrollTime - FPFI
+    tx <- rep(0:2, c(n_pla, n_ab_l, n_ab_h))
+    tm <- c(rexp(n_pla, rate = rate_pla), 
+            rexp(n_ab_l, rate = rate_pla * altHR_l),
+            rexp(n_ab_h, rate = rate_pla * altHR_h))
+    cens <- rexp(n_total, rate = rate_cens)
+    eventTime <- pmin(tm, cens)
+    eventInd <- as.numeric(tm <= cens)
+    # sample from the support using the estimated density as weights
+    log10_ic80_comb <- 
+      c(sample(dens$x, size = n_pla, replace = TRUE, prob = dens$y),
+        sample(dens$x, size = n_ab_l, replace = TRUE, 
+               prob = dens$y * exp(beta * (dens$x - 1) - log(altHR_l))),
+        sample(dens$x, size = n_ab_h, replace = TRUE, 
+               prob = dens$y * exp(beta * (dens$x - 1) - log(altHR_h))))
+    log10_ic80_comb <- pmin(log10_ic80_comb, 1)
+    log10_ic80_comb <- ifelse(eventInd == 1, log10_ic80_comb, NA)
+    calTime <- enrollTime + eventTime
+    df <- data.frame(enrollTime, tx, eventTime, eventInd, log10_ic80_comb, calTime)
+    
+    anal_times <- sort(df %>% 
+                         filter(tx != 0, eventInd == 1) %>% 
+                         pull(calTime))
+    
+    if (length(anal_times) < n_target_cases_h_l){
+      # the target event count has not been reached
+      return(NA)
+    } else {
+      anal_time <- anal_times[n_target_cases_h_l]
+      
+      # apply data cut at anal_time
+      df <- df %>%
+        mutate(eventInd = if_else(calTime > anal_time, 0, eventInd),
+               calTime = pmin(calTime, anal_time),
+               eventTime = pmax(calTime - enrollTime, 0),
+               log10_ic80_comb = if_else(eventInd == 1, log10_ic80_comb, NA),
+               tx = as.numeric(tx != 0)) %>%
+        filter(eventTime > 0)
+      
+      fit <- sievePH(eventTime = df$eventTime, eventInd = df$eventInd,
+                     mark = df$log10_ic80_comb, tx = df$tx)
+      
+      markRng <- range(df$log10_ic80_comb, na.rm = TRUE)
+      markGrid <- seq(markRng[1], markRng[2], length.out = 500)
+      # store a data frame with columns [mark], TE, LB, UB
+      sfit <- try(summary(fit, markGrid = markGrid, contrast = "te", 
+                          sieveAlternative = "oneSided", confLevel = conf_level)$te)
+      
+      if (inherits(sfit, "try-error")){
+        return("summary.sievePH-error")
+      } else {
+        sfit$iter <- i
+        return(sfit)
+      }
+    }
   }
   
   return(out)
