@@ -1,8 +1,8 @@
 library(tidyverse)
 library(np)
 
-source(here::here("param.R"))
-source(here::here("utils.R"))
+source(here::here("code/param.R"))
+source(here::here("code/utils.R"))
 
 
 # Get IC80 of Combo-AMP regimen against 704 placebo viruses ---------------
@@ -19,9 +19,12 @@ dat <- read.csv("/trials/vaccine/p704/analysis/manuscripts/NeutTiterBiomarker/da
          mab_name = recode(mab_name, "VRC07-523LS" = "1", "PGT121.414LS" = "2", 
                            "PGDM1400" = "3")) %>%
   pivot_wider(names_from = "mab_name", values_from = "titer", names_prefix = "ic80_ab") %>%
-  mutate(log10_ic80_comb = log10(1 / ((1 / ic80_ab1) + (1 / ic80_ab2) + (1 / ic80_ab3)))) %>%
-  select(log10_ic80_comb)
+  mutate(log10_ic80_comb = log10(1 / ((1 / ic80_ab1) + (1 / ic80_ab2) + (1 / ic80_ab3))))
 
+# file emailed by Lily on 8/13/25 as an alternative to the data approach above
+# dat2 <- read.csv(here::here("data/704_placebo_IC80_vrc01_vrc07_pgt121_pgdm1400.csv")) %>%
+#   mutate(log10_ic80_comb = log10(1 / ((1 / PGDM1400) + (1 / PGT121.414LS) + (1 / VRC07.523LS)))) %>%
+#   select(log10_ic80_comb)
 
 # Get density ratio model coefficients under PE(log10(IC80)=1) = 0 --------
 
@@ -80,6 +83,19 @@ ggsave(here::here(file.path(path, "truePEbyLog10combIC80.pdf")), plot = p, heigh
 
 # Plot PE by PT80 ---------------------------------------------------------
 
+# emailed by Lily on 8/13/25
+df_conc <- data.frame(ab = rep(c("PGDM1400LS", "PGT121LS", "VRC07.523LS"), each = 2),
+                      dose = rep(c("IV 0.4g", "IV 1.6g"), 3),
+                      med_conc = c(33.30190776, 133.207631, 48.21225924, 192.849037, 19.17685883, 153.4148706))
+d <- df_conc %>% filter(dose == "IV 0.4g") %>% select(ab, med_conc) %>%
+  mutate(gm_ic80 = c(exp(mean(log(dat$ic80_ab3))), exp(mean(log(dat$ic80_ab2))), exp(mean(log(dat$ic80_ab1)))),
+         pt80 = med_conc / gm_ic80)
+gm_ic80_comb <- 10^(mean(dat$log10_ic80_comb))
+conc <- gm_ic80_comb * sum(d$pt80)
+
+x_values <- c(1, 2, 5, 10, 20, 50, 100, 200, 500, 2000, 10000)
+x_breaks <- -log10(conc / x_values)
+
 p <- ggplot() +
   geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
   annotate("text", x = max(-df_ve$v), y = 0.8, hjust = 1.05, vjust = 1.6,
@@ -90,7 +106,8 @@ p <- ggplot() +
                      labels = c("Placebo", "Ab high + Ab low"),
                      name = "PDF") +
   geom_line(aes(x = -v, y = ve), data = df_ve, linewidth = 1.2) +
-  scale_x_continuous(breaks = -1:3, labels = 20 / 10^(1:-3)) +
+  # scale_x_continuous(breaks = -1:3, labels = conc / 10^(1:-3)) +
+  scale_x_continuous(breaks = x_breaks, labels = x_values, minor_breaks = NULL) +
   scale_y_continuous(breaks = seq(0, 1, by = 0.25), 
                      labels = seq(0, 1, by = 0.25) * 100) +
   labs(x = "Combination PT80 of Combo-AMP Regimen\nagainst Autologous Virus", 
@@ -123,7 +140,8 @@ for (n_h_l in c(25, 50, 75)){
     geom_line(aes(x = -mark, y = TE, group = iter), data = df, alpha = 0.05) +
     geom_line(aes(x = -v, y = ve), data = df_ve, linewidth = 1.2, color = "red") +
     coord_cartesian(xlim = c(-1, 3), ylim = c(0, 1)) +
-    scale_x_continuous(breaks = -1:3, labels = 20 / 10^(1:-3)) +
+    # scale_x_continuous(breaks = -1:3, labels = 20 / 10^(1:-3)) +
+    scale_x_continuous(breaks = x_breaks, labels = x_values, minor_breaks = NULL) +
     scale_y_continuous(breaks = seq(0, 1, by = 0.25), 
                        labels = seq(0, 1, by = 0.25) * 100) +
     labs(x = "Combination PT80 of Combo-AMP Regimen\nagainst Autologous Virus", 

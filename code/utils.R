@@ -88,7 +88,7 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
   set.seed(seed)
   
   out <- foreach(i = 1:iter) %dorng% {
-    source(here::here("utils.R"))
+    source(here::here("code/utils.R"))
     
     p_ab_prim <- ifelse(compare == "h", p_ab_h, p_ab_l)
     altHR_prim <- ifelse(compare == "h", altHR_h, altHR_l)
@@ -216,7 +216,7 @@ est_PE_by_PT80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h,
   # dens$x <- dens$x[dens$x < 1]
   
   out <- foreach(i = 1:iter) %dorng% {
-    source(here::here("utils.R"))
+    source(here::here("code/utils.R"))
     
     # sample size in each arm
     n_ab_h <- round(n_total * p_ab_h, 0)

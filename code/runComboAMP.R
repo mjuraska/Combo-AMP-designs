@@ -2,8 +2,8 @@
 here::i_am("runComboAMP.R")
 
 library(tidyverse)
-source(here::here("param.R"))
-source(here::here("utils.R"))
+source(here::here("code/param.R"))
+source(here::here("param/utils.R"))
 
 
 # Find the target endpoint count ------------------------------------------
