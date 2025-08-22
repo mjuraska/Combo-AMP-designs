@@ -206,10 +206,10 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
   return(out)
 }
 
-est_PE_by_PT80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h, 
-                           rate_pla, altHR_l, altHR_h, rate_cens,
-                           n_target_cases_h_l, dens, beta, conf_level = 0.95, 
-                           iter, seed = 3291){
+est_pe_by_log10ic80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h, 
+                                rate_pla, altHR_l, altHR_h, rate_cens,
+                                n_target_cases_h_l, dens, beta, conf_level = 0.95, 
+                                iter, seed = 3291){
   set.seed(seed)
   
   # dens$y <- dens$y[dens$x < 1]
@@ -280,7 +280,7 @@ est_PE_by_PT80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h,
       
       markRng <- range(df$log10_ic80_comb, na.rm = TRUE)
       markGrid <- seq(markRng[1], markRng[2], length.out = 500)
-      # store a data frame with columns [mark], TE, LB, UB
+      # store a data frame with columns mark, TE, LB, UB
       sfit <- try(summary(fit, markGrid = markGrid, contrast = "te", 
                           sieveAlternative = "oneSided", confLevel = conf_level)$te)
       
@@ -294,6 +294,70 @@ est_PE_by_PT80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_h,
   }
   
   return(out)
+}
+
+#' @param df_ic80 data frame of IC80s against 704 placebo viruses
+#' @param h a numeric vector of bnAb-specific multiplicative constants by which
+#'   IC80s are multiplied to define a new regimen
+#' @param df_c data frame of individual-level concentrations
+#' 
+#' @return a data frame with a combination PT80 for each ptid, day, virus
+get_comb_pt80 <- function(df_ic80, h = c(1, 1, 1), df_c){
+  ab <- c("VRC07523LS", "PGT121414LS", "PGDM1400")
+  
+  # IC80s of a new regimen
+  df_ic80 <- df_ic80 %>% 
+    select(all_of(ab)) %>%
+    mutate(!!ab[1] := h[1] * .data[[ab[1]]],
+           !!ab[2] := h[2] * .data[[ab[2]]],
+           !!ab[3] := h[3] * .data[[ab[3]]])
+  
+  mat_ic80 <- as.matrix(df_ic80)
+  
+  df_pt80 <- plyr::ldply(1:NROW(df_c), function(r, df_ic80, mat_ic80, df_c, ab){
+    conc <- as.numeric(df_c[r, paste0("conc_", ab)])
+    comb_pt80 <- drop((1 / mat_ic80) %*% conc)
+    return(data.frame(ptid = df_c$ptid[r],
+                      day = df_c$day[r],
+                      virus = df_ic80$isolate,
+                      comb_pt80 = comb_pt80))
+  }, df_ic80 = df_ic80, mat_ic80 = mat_ic80, df_c = df_c, ab = ab)
+  
+  return(df_pt80)
+}
+
+#' @param df_pe data frame outputted by est_pe_by_log10ic80()
+#' @param scale_c average effective concentration-at-exposure scaling constant
+#' @param df_comb_pt80 data frame outputted by get_comb_pt80()
+#' 
+#' @return a numeric vector with the predicted PE point estimate and CI
+predict_pe <- function(df_pe, scale_c, df_comb_pt80){
+  ab <- c("VRC07523LS", "PGT121414LS", "PGDM1400")
+  
+  df_pe <- df_pe %>% 
+    mutate(pt80 = scale_c / 10^mark) %>%
+    # approx() below requires sorted x
+    arrange(pt80)
+  
+  # create interpolation functions once
+  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = 2)
+  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = 2)
+  
+  # linear interpolation
+  df_pred_pe <- df_comb_pt80 %>%
+    mutate(pe = f_pe(comb_pt80),
+           lb = f_lb(comb_pt80)) %>%
+    group_by(ptid, day) %>%
+    summarise(mean_pe = mean(pe),
+              mean_lb = mean(lb),
+              .groups = "drop") %>%
+    group_by(day) %>%
+    summarise(med_pe = as.numeric(quantile(mean_pe, prob = 0.5)),
+              med_lb = as.numeric(quantile(mean_lb, prob = 0.5)),
+              .groups = "drop")
+  
+  return(c(mean(df_pred_pe$med_pe), 
+           mean(df_pred_pe$med_lb)))
 }
 
 plot_time_to_end_stage1 <- function(df, path){

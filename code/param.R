@@ -23,3 +23,11 @@ pwr <- 0.9
 path <- "output/2025-07-29"
 
 n_total <- 10821
+
+pop_conc_files <- c("sim_PK_vrc07_fixDose0.4g_wk26.csv",
+                    "sim_PK_vrc07_fixDose3.2g_wk26.csv",
+                    "sim_PK_pgt121ls_fixDose0.4g_wk26.csv",
+                    "sim_PK_pgt121ls_fixDose1.6g_wk26.csv",
+                    "sim_PK_pgdm1400ls_fixDose0.4g_wk26.csv",
+                    "sim_PK_pgdm1400ls_fixDose1.6g_wk26.csv")
+ic80_file <- "704_placebo_IC80_vrc01_vrc07_pgt121_pgdm1400.csv"
