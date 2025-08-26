@@ -5,31 +5,23 @@ source(here::here("code/param.R"))
 source(here::here("code/utils.R"))
 
 
-# Get IC80 of Combo-AMP regimen against 704 placebo viruses ---------------
+# Get potency weights of Combo-AMP bnAbs for 704 placebo viruses ----------
 
-# pubid_pla <- read.csv("/trials/vaccine/p704/analysis/efficacy/adata/amp_survival_wk104_neut.csv") %>%
-#   filter(protocol == "HVTN 704", tx == "C3", hiv1event == 1) %>%
-#   pull(pub_id)
-# 
-# dat <- read.csv("/trials/vaccine/p704/analysis/manuscripts/NeutTiterBiomarker/data/VTN704_Non_Par_breakthrough_NAb_20210331.csv") %>%
-#   select(protnum, isolate, poscrit, titer, mab_name) %>%
-#   mutate(pub_id = sapply(strsplit(isolate, split = "_"), function(x){ paste0(substring(x[1], first = 2), "-", x[2]) })) %>%
-#   filter(pub_id %in% pubid_pla, poscrit == 80, mab_name %in% c("VRC07-523LS", "PGT121.414LS", "PGDM1400")) %>%
-#   mutate(titer = as.numeric(gsub(">>", "", titer)),
-#          mab_name = recode(mab_name, "VRC07-523LS" = "1", "PGT121.414LS" = "2", 
-#                            "PGDM1400" = "3")) %>%
-#   pivot_wider(names_from = "mab_name", values_from = "titer", names_prefix = "ic80_ab") %>%
-#   mutate(log10_ic80_comb = log10(1 / ((1 / ic80_ab1) + (1 / ic80_ab2) + (1 / ic80_ab3))))
-
-# files emailed by Lily on 8/13/25 as an alternative to the data approach above
 d_ic80 <- read.csv(here::here("data", ic80_file)) %>%
-  rename_with(~ gsub("\\.", "", .x)) %>%
-  mutate(comb_ic80 = 1 / ((1 / PGDM1400) + (1 / PGT121414LS) + (1 / VRC07523LS)),
+  select(-VRC01) %>%
+  rename_with(~ case_when(grepl("PGDM", .x) ~ "PGDM",
+                          grepl("PGT", .x) ~ "PGT",
+                          grepl("VRC", .x) ~ "VRC",
+                          TRUE ~ .x)) %>%
+  mutate(comb_ic80 = 1 / ((1 / PGDM) + (1 / PGT) + (1 / VRC)),
          log10_comb_ic80 = log10(comb_ic80),
-         w_PGDM = comb_ic80 / PGDM1400,
-         w_PGT = comb_ic80 / PGT121414LS,
-         w_VRC = comb_ic80 / VRC07523LS,
+         w_PGDM = comb_ic80 / PGDM,
+         w_PGT = comb_ic80 / PGT,
+         w_VRC = comb_ic80 / VRC,
          w_sum = w_PGDM + w_PGT + w_VRC)
+
+
+# Get scaling constant using pop-level concentrations ---------------------
 
 d_pop_conc <- plyr::ldply(pop_conc_files, function(f){
   read.csv(here::here("data", f))
@@ -38,16 +30,40 @@ d_pop_conc <- plyr::ldply(pop_conc_files, function(f){
   summarise(med = quantile(Cc_ss, prob = 0.5),
             gm = exp(mean(log(Cc_ss))))
 
-gm_conc_l <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC)) %*% 
+gm_pop_conc_l <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC)) %*% 
                               (d_pop_conc %>% filter(dose == "IV 0.4g") %>% pull(gm))))))
-gm_conc_h <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC)) %*% 
+gm_pop_conc_h <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC)) %*% 
                               (d_pop_conc %>% filter(dose != "IV 0.4g") %>% pull(gm))))))
-# this is the average effective concentration at exposure scaling constant
-gm_conc <- exp(mean(log(c(gm_conc_h, gm_conc_l))))
+gm_pop_conc <- exp(mean(log(c(gm_conc_h, gm_conc_l))))
 
-d_ind_conc <- read.csv(here::here("data", ind_conc_file)) %>%
-  # for consistency with IC80 file
-  rename(conc_PGDM1400 = conc_PGDM1400LS)
+
+# Get scaling constant using ind-level concentrations ---------------------
+
+d_ind_conc <- plyr::ldply(1:length(ind_conc_files), function(i){
+  read.csv(here::here("data", ind_conc_files[i])) %>%
+    rename_with(~ case_when(grepl("PGDM", .x) ~ "conc_PGDM",
+                            grepl("PGT", .x) ~ "conc_PGT",
+                            grepl("VRC", .x) ~ "conc_VRC",
+                            TRUE ~ .x)) %>%
+    mutate(dose = if_else(i == 1, "low", "high"))
+}) %>%
+  mutate(id = if_else(dose == "low", id, id + max(id[dose == "low"])))
+
+gm_ind_conc <- d_ind_conc %>%
+  group_by(id) %>%
+  summarise(gm_PGDM = exp(mean(log(conc_PGDM))),
+            gm_PGT = exp(mean(log(conc_PGT))),
+            gm_VRC = exp(mean(log(conc_VRC))),
+            .groups = "drop")
+
+m_w <- as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC))
+
+gm_ind_conc <- exp(mean(log(
+  sapply(1:NROW(gm_ind_conc), function(r){
+  conc <- as.numeric(gm_ind_conc[r, paste0("gm_", c("PGDM", "PGT", "VRC"))])
+  return(mean(drop(m_w %*% conc)))
+})
+)))
 
 
 # Plot potency-based weights of the 3 bnAbs -------------------------------
@@ -133,8 +149,8 @@ ggsave(here::here(file.path(path, "truePEbyLog10combIC80_dataFromLily.pdf")), pl
 # gm_ic80_comb <- 10^(mean(dat$log10_ic80_comb))
 # conc <- gm_ic80_comb * sum(d$pt80)
 
-x_values <- c(10, 20, 50, 100, 200, 500, 2000, 5000, 20000)
-x_breaks <- -log10(gm_conc / x_values)
+x_values <- c(5, 10, 20, 50, 100, 200, 500, 2000, 5000, 20000)
+x_breaks <- -log10(gm_ind_conc / x_values)
 
 p <- ggplot() +
   geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
@@ -161,13 +177,16 @@ ggsave(here::here(file.path(path, "truePEbycombPT80_dataFromLily.pdf")), plot = 
 # Run the simulation ------------------------------------------------------
 
 # get PT80s of a new regimen
-d_pt80 <- get_comb_pt80(d_ic80, c(1, 1, 1), d_ind_conc)
+d_pt80 <- get_comb_pt80(d_ic80, 
+                        h = c(1, 1, 1), 
+                        df_c = d_ind_conc %>% 
+                          filter(id %in% c(1:200, 1001:1200)))
 
 dens <- density(d_ic80$log10_comb_ic80, n = 1000)
 
 registerDoParallel(cores = n_cores)
 
-plot_est_pe <- FALSE
+plot_est_pe <- TRUE
 plot_pred_pe <- TRUE
 p <- list()
 n_h_l <- c(25, 50, 75)
@@ -200,10 +219,10 @@ df_pred_pe <- plyr::ldply(1:length(n_h_l), function(j){
       theme_bw()
     
     ggsave(here::here(file.path(path, paste0("estPEbycombPT80_target_h_l=", n_h_l[j], ".pdf"))), 
-           plot = p[[k]], height = 5, width = 5)
+           plot = p[[j]], height = 5, width = 5)
   }
   
-  out <- lapply(l_pe, predict_pe, scale_c = gm_conc, df_comb_pt80 = d_pt80)
+  out <- lapply(l_pe, predict_pe, scale_c = gm_ind_conc, df_comb_pt80 = d_pt80)
   out <- as.data.frame(do.call(rbind, out))
   colnames(out) <- c("pe", "lb")
   out$n_h_l <- n_h_l[j]

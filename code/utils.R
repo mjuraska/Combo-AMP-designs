@@ -303,27 +303,35 @@ est_pe_by_log10ic80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_
 #' 
 #' @return a data frame with a combination PT80 for each ptid, day, virus
 get_comb_pt80 <- function(df_ic80, h = c(1, 1, 1), df_c){
-  ab <- c("VRC07523LS", "PGT121414LS", "PGDM1400")
+  ab <- c("PGDM", "PGT", "VRC")
   
   # IC80s of a new regimen
   df_ic80 <- df_ic80 %>% 
-    select(all_of(ab)) %>%
     mutate(!!ab[1] := h[1] * .data[[ab[1]]],
            !!ab[2] := h[2] * .data[[ab[2]]],
            !!ab[3] := h[3] * .data[[ab[3]]])
   
-  mat_ic80 <- as.matrix(df_ic80)
+  mat_ic80 <- as.matrix(df_ic80 %>% 
+                          arrange(isolate) %>% 
+                          select(all_of(ab)))
   
-  df_pt80 <- plyr::ldply(1:NROW(df_c), function(r, df_ic80, mat_ic80, df_c, ab){
-    conc <- as.numeric(df_c[r, paste0("conc_", ab)])
-    comb_pt80 <- drop((1 / mat_ic80) %*% conc)
-    return(data.frame(ptid = df_c$ptid[r],
-                      day = df_c$day[r],
-                      virus = df_ic80$isolate,
-                      comb_pt80 = comb_pt80))
-  }, df_ic80 = df_ic80, mat_ic80 = mat_ic80, df_c = df_c, ab = ab)
+  mat_c <- as.matrix(df_c %>% 
+                       arrange(id, time) %>% 
+                       select(all_of(paste0("conc_", ab))))
   
-  return(df_pt80)
+  k <- 1
+  out <- vector("list", length(unique(df_c$id)))
+  for (i in unique(df_c$id)){
+    idx <- which(df_c$id == i)
+    comb_pt80 <- (1 / mat_ic80) %*% t(mat_c[idx, ])
+    out[[k]] <- data.frame(id = rep(df_c$id[idx], each = nrow(df_ic80)),
+                           time = rep(df_c$time[idx], each = nrow(df_ic80)),
+                           virus = rep(df_ic80$isolate, times = length(idx)),
+                           comb_pt80 = as.vector(comb_pt80))
+    k <- k + 1
+  }
+  
+  return(bind_rows(out))
 }
 
 #' @param df_pe data frame outputted by est_pe_by_log10ic80()
@@ -347,11 +355,11 @@ predict_pe <- function(df_pe, scale_c, df_comb_pt80){
   df_pred_pe <- df_comb_pt80 %>%
     mutate(pe = f_pe(comb_pt80),
            lb = f_lb(comb_pt80)) %>%
-    group_by(ptid, day) %>%
+    group_by(id, time) %>%
     summarise(mean_pe = mean(pe),
               mean_lb = mean(lb),
               .groups = "drop") %>%
-    group_by(day) %>%
+    group_by(time) %>%
     summarise(med_pe = as.numeric(quantile(mean_pe, prob = 0.5)),
               med_lb = as.numeric(quantile(mean_lb, prob = 0.5)),
               .groups = "drop")

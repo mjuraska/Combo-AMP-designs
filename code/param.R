@@ -30,4 +30,6 @@ pop_conc_files <- c("sim_PK_vrc07_fixDose0.4g_wk26.csv",
                     "sim_PK_pgt121ls_fixDose1.6g_wk26.csv",
                     "sim_PK_pgdm1400ls_fixDose0.4g_wk26.csv",
                     "sim_PK_pgdm1400ls_fixDose1.6g_wk26.csv")
+ind_conc_files <- c("PK_1000individal_fixDose_0.4vrc07_0.4pgt121ls_0.4pgdm1400ls_over26Wk.csv",
+                    "PK_1000individal_fixDose_3.2vrc07_1.6pgt121ls_1.6pgdm1400ls_over26Wk.csv")
 ic80_file <- "704_placebo_IC80_vrc01_vrc07_pgt121_pgdm1400.csv"
