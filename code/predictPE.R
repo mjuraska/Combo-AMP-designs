@@ -34,7 +34,7 @@ gm_pop_conc_l <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_
                               (d_pop_conc %>% filter(dose == "IV 0.4g") %>% pull(gm))))))
 gm_pop_conc_h <- exp(mean(log(drop(as.matrix(d_ic80 %>% select(w_PGDM, w_PGT, w_VRC)) %*% 
                               (d_pop_conc %>% filter(dose != "IV 0.4g") %>% pull(gm))))))
-gm_pop_conc <- exp(mean(log(c(gm_conc_h, gm_conc_l))))
+gm_pop_conc <- exp(mean(log(c(gm_pop_conc_h, gm_pop_conc_l))))
 
 
 # Get scaling constant using ind-level concentrations ---------------------
@@ -186,12 +186,14 @@ dens <- density(d_ic80$log10_comb_ic80, n = 1000)
 
 registerDoParallel(cores = n_cores)
 
-plot_est_pe <- TRUE
+plot_est_pe <- FALSE
 plot_pred_pe <- TRUE
 p <- list()
+pred_pe <- list()
 n_h_l <- c(25, 50, 75)
 
-df_pred_pe <- plyr::ldply(1:length(n_h_l), function(j){
+start_time <- Sys.time()
+for (j in 1:length(n_h_l)){
   # a list of data frames
   l_pe <- est_pe_by_log10ic80(n_total = n_total, p_pla = p_pla, p_ab_l = p_ab_l, 
                               p_ab_h = p_ab_h, rate_pla = rate_pla, 
@@ -222,13 +224,18 @@ df_pred_pe <- plyr::ldply(1:length(n_h_l), function(j){
            plot = p[[j]], height = 5, width = 5)
   }
   
-  out <- lapply(l_pe, predict_pe, scale_c = gm_ind_conc, df_comb_pt80 = d_pt80)
-  out <- as.data.frame(do.call(rbind, out))
-  colnames(out) <- c("pe", "lb")
-  out$n_h_l <- n_h_l[j]
-  
-  return(out)
-})
+  # predict_pe_dt() is faster than predict_pe(), predict_pe_parallel(), or
+  # predict_pe_parallel_dt()
+  pred_pe[[j]] <- lapply(l_pe, predict_pe_dt, scale_c = gm_ind_conc, 
+                         df_comb_pt80 = d_pt80, approxfun_rule = 1)
+  pred_pe[[j]] <- as.data.frame(do.call(rbind, pred_pe[[j]]))
+  pred_pe[[j]]$n_h_l <- n_h_l[j]
+}
+
+pred_pe <- bind_rows(pred_pe) 
+saveRDS(pred_pe, here::here(path, "predPE_lowHighDoseMix_h=1_1_1_v3.rds"))
+diff_time <- Sys.time() - start_time
+diff_time
 
 if (plot_est_pe){
   combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
@@ -236,16 +243,43 @@ if (plot_est_pe){
          height = 5, width = 15)  
 }
 
+# pred_pe <- readRDS(here::here(path, "predPE_lowHighDoseMix_h=1_1_1_v2.rds"))
 if (plot_pred_pe){
-  p <- ggplot(df_pred_pe, aes(x = factor(n_h_l), y = pe)) +
+  p <- list()
+  p[[1]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = ptEst_pe)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
+    # geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
+    coord_cartesian(ylim = c(-0.2, 1)) +
+    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
+                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
     labs(x = "High-Ab + Low-Ab Endpoint Count",
-         y = "Monte-Carlo Sampling Distribution of Point Estimates of PE")
-  p
+         y = "Monte-Carlo Sampling Distribution of\nPoint Estimates of PE",
+         title = "Point Estimate of PE") +
+    theme_bw()
   
-  p <- ggplot(df_pred_pe, aes(x = factor(n_h_l), y = lb)) +
+  p[[2]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_B)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
+    coord_cartesian(ylim = c(-0.2, 1)) +
+    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
+                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
     labs(x = "High-Ab + Low-Ab Endpoint Count",
-         y = "Monte-Carlo Sampling Distribution of Lower 95\% Uncertainty Limit for PE")
-  p
+         y = "Monte-Carlo Sampling Distribution of\nLower 95% Uncertainty Limit for PE",
+         title = "Algorithm B:\nLower 95% Uncertainty Limit") +
+    theme_bw()
+  
+  p[[3]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_A)) +
+    geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
+    coord_cartesian(ylim = c(-0.2, 1)) +
+    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
+                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
+    labs(x = "High-Ab + Low-Ab Endpoint Count",
+         y = "Monte-Carlo Sampling Distribution of\nLower 95% Uncertainty Limit for PE",
+         title = "Algorithm A:\nLower 95% Uncertainty Limit") +
+    theme_bw()
+  
+  combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
+  ggsave(here::here(path, "MCdistribPredPE_lowHighDoseMix_h=1_1_1_v3.pdf"), plot = combined_p, 
+         height = 5, width = 10)
 }
+
+

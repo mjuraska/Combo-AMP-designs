@@ -18,7 +18,7 @@ tau <- 1.5
 alpha_1sided <- 0.025
 info_fractions <- c(0.75, 1)
 iter <- 1000
-n_cores <- 16
+n_cores <- 20
 pwr <- 0.9
 path <- "output/2025-07-29"
 

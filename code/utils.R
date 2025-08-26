@@ -7,6 +7,7 @@ library(doParallel)
 library(doRNG)
 library(sievePH)
 library(patchwork)
+library(data.table)
 
 # get number of events in the numerator given
 # total events 'n', hazard ratio 'hr', and probabilities 'p1' and 'p0' of
@@ -251,7 +252,7 @@ est_pe_by_log10ic80 <- function(n_total, n_enroll_m = NULL, p_pla, p_ab_l, p_ab_
                prob = dens$y * exp(beta * (dens$x - 1) - log(altHR_l))),
         sample(dens$x, size = n_ab_h, replace = TRUE, 
                prob = dens$y * exp(beta * (dens$x - 1) - log(altHR_h))))
-    log10_ic80_comb <- pmin(log10_ic80_comb, 1)
+    # log10_ic80_comb <- pmin(log10_ic80_comb, 1)
     log10_ic80_comb <- ifelse(eventInd == 1, log10_ic80_comb, NA)
     calTime <- enrollTime + eventTime
     df <- data.frame(enrollTime, tx, eventTime, eventInd, log10_ic80_comb, calTime)
@@ -339,19 +340,16 @@ get_comb_pt80 <- function(df_ic80, h = c(1, 1, 1), df_c){
 #' @param df_comb_pt80 data frame outputted by get_comb_pt80()
 #' 
 #' @return a numeric vector with the predicted PE point estimate and CI
-predict_pe <- function(df_pe, scale_c, df_comb_pt80){
-  ab <- c("VRC07523LS", "PGT121414LS", "PGDM1400")
-  
+predict_pe <- function(df_pe, scale_c, df_comb_pt80, approxfun_rule = 1){
   df_pe <- df_pe %>% 
     mutate(pt80 = scale_c / 10^mark) %>%
-    # approx() below requires sorted x
+    # approxfun() below requires sorted pt80
     arrange(pt80)
   
   # create interpolation functions once
-  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = 2)
-  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = 2)
+  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = approxfun_rule)
+  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = approxfun_rule)
   
-  # linear interpolation
   df_pred_pe <- df_comb_pt80 %>%
     mutate(pe = f_pe(comb_pt80),
            lb = f_lb(comb_pt80)) %>%
@@ -361,12 +359,125 @@ predict_pe <- function(df_pe, scale_c, df_comb_pt80){
               .groups = "drop") %>%
     group_by(time) %>%
     summarise(med_pe = as.numeric(quantile(mean_pe, prob = 0.5)),
-              med_lb = as.numeric(quantile(mean_lb, prob = 0.5)),
+              lb_A = as.numeric(quantile(mean_pe, prob = 0.025)),
+              lb_B = as.numeric(quantile(mean_lb, prob = 0.5)),
               .groups = "drop")
   
-  return(c(mean(df_pred_pe$med_pe), 
-           mean(df_pred_pe$med_lb)))
+  return(c(ptEst_pe = mean(df_pred_pe$med_pe), 
+           lb_pe_A = mean(df_pred_pe$lb_A),
+           lb_pe_B = mean(df_pred_pe$lb_B)))
 }
+
+# the fastest
+predict_pe_dt <- function(df_pe, scale_c, df_comb_pt80, approxfun_rule = 1){
+  setDT(df_pe)
+  setDT(df_comb_pt80)
+  
+  # Compute pt80 and sort (approxfun needs sorted x)
+  df_pe[, pt80 := scale_c / (10^mark)]
+  setorder(df_pe, pt80)
+  
+  # create interpolation functions once
+  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = approxfun_rule)
+  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = approxfun_rule)
+  
+  df_comb_pt80[, `:=`(logrr = log(1 - f_pe(comb_pt80)),
+                      ub = log(1 - f_lb(comb_pt80)))]
+  
+  df_summary <- df_comb_pt80[, .(mean_logrr = mean(logrr, na.rm = TRUE),
+                                 mean_ub = mean(ub, na.rm = TRUE)), 
+                             by = .(id, time)]
+  
+  df_pred_logrr <- df_summary[, .(med_logrr = as.numeric(quantile(mean_logrr, prob = 0.5, na.rm = TRUE)),
+                                  ub_A = as.numeric(quantile(mean_logrr, prob = 0.975, na.rm = TRUE)),
+                                  ub_B = as.numeric(quantile(mean_ub, prob = 0.5, na.rm = TRUE))), 
+                              by = time]
+  
+  return(c(ptEst_pe = 1 - exp(mean(df_pred_logrr$med_logrr, na.rm = TRUE)),
+           lb_pe_A  = 1 - exp(mean(df_pred_logrr$ub_A, na.rm = TRUE)),
+           lb_pe_B  = 1 - exp(mean(df_pred_logrr$ub_B, na.rm = TRUE))))
+}
+
+predict_pe_parallel <- function(df_pe, scale_c, df_comb_pt80, 
+                                approxfun_rule = 1, n_cores){
+  df_pe <- df_pe %>% 
+    mutate(pt80 = scale_c / 10^mark) %>%
+    # approxfun() below requires sorted pt80
+    arrange(pt80)
+  
+  # create interpolation functions once
+  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = approxfun_rule)
+  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = approxfun_rule)
+  
+  # split df_comb_pt80 by time for parallel processing
+  time_groups <- split(df_comb_pt80, df_comb_pt80$time)
+  
+  df_pred_pe <- foreach(time_val = names(time_groups), .combine = bind_rows) %dorng% {
+    library(tidyverse)
+    
+    df_group <- time_groups[[time_val]]
+    
+    df_group <- df_group %>%
+      mutate(pe = f_pe(comb_pt80),
+             lb = f_lb(comb_pt80)) %>%
+      group_by(id, time) %>%
+      summarise(mean_pe = mean(pe, na.rm = TRUE),
+                mean_lb = mean(lb, na.rm = TRUE),
+                .groups = "drop")
+    
+    return(summarise(df_group,
+                     time = unique(time),
+                     med_pe = as.numeric(quantile(mean_pe, prob = 0.5, na.rm = TRUE)),
+                     lb_A = as.numeric(quantile(mean_pe, prob = 0.025, na.rm = TRUE)),
+                     lb_B = as.numeric(quantile(mean_lb, prob = 0.5, na.rm = TRUE))))
+  }
+  
+  return(c(ptEst_pe = mean(df_pred_pe$med_pe, na.rm = TRUE),
+           lb_pe_A = mean(df_pred_pe$lb_A, na.rm = TRUE),
+           lb_pe_B = mean(df_pred_pe$lb_B, na.rm = TRUE)))
+}
+
+# slower than predict_pe_parallel()
+predict_pe_parallel_dt <- function(df_pe, scale_c, df_comb_pt80, 
+                                   approxfun_rule = 1, n_cores){
+  # convert to data.table
+  setDT(df_pe)
+  setDT(df_comb_pt80)
+  
+  df_pe[, pt80 := scale_c / (10^mark)]
+  setorder(df_pe, pt80)
+  
+  # create interpolation functions once
+  f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = approxfun_rule)
+  f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = approxfun_rule)
+  
+  # split df_comb_pt80 by time for parallel processing
+  time_groups <- split(df_comb_pt80, by = "time", keep.by = TRUE)
+  
+  df_pred_pe <- foreach(time_val = names(time_groups), .combine = rbind, 
+                        .packages = "data.table") %dorng% {
+    df_group <- time_groups[[time_val]]
+    
+    df_group[, pe := f_pe(comb_pt80)]
+    df_group[, lb := f_lb(comb_pt80)]
+    
+    df_group <- df_group[, .(mean_pe = mean(pe, na.rm = TRUE), 
+                             mean_lb = mean(lb, na.rm = TRUE)), 
+                         by = .(id, time)]
+    
+    return(
+      data.table(time = unique(df_group$time),
+                 med_pe = as.numeric(quantile(df_group$mean_pe, prob = 0.5, na.rm = TRUE)),
+                 lb_A   = as.numeric(quantile(df_group$mean_pe, prob = 0.025, na.rm = TRUE)),
+                 lb_B   = as.numeric(quantile(df_group$mean_lb, prob = 0.5, na.rm = TRUE)))
+      )
+  }
+  
+  return(c(ptEst_pe = mean(df_pred_pe[, med_pe], na.rm = TRUE),
+           lb_pe_A = mean(df_pred_pe[, lb_A], na.rm = TRUE),
+           lb_pe_B = mean(df_pred_pe[, lb_B], na.rm = TRUE)))
+}
+
 
 plot_time_to_end_stage1 <- function(df, path){
   m <- mean(df$anal_time)
