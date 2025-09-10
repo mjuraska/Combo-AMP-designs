@@ -190,9 +190,10 @@ registerDoParallel(cores = n_cores)
 
 plot_est_pe <- FALSE
 plot_pred_pe <- TRUE
+plot_cp_pe <- TRUE
 p <- list()
 pred_pe <- list()
-n_h_l <- c(25, 50, 75)
+n_h_l <- c(30, 35, 40, 45)
 
 start_time <- Sys.time()
 for (j in 1:length(n_h_l)){
@@ -238,21 +239,26 @@ pred_pe <- bind_rows(pred_pe) %>%
   mutate(indCover_pe_A = as.numeric(lb_pe_A < true_pe & ub_pe_A > true_pe),
          indCover_pe_cA = as.numeric(lb_pe_cA < true_pe & ub_pe_cA > true_pe),
          indCover_pe_B = as.numeric(lb_pe_B < true_pe & ub_pe_B > true_pe))
-file_name <- paste0("predPE_highDose_h=", 
+pred_pe_fname <- paste0("predPE_highDose_h=", 
                     paste(sapply(h, format, decimal.mark = ","), collapse = "_"), 
                     "_", 
                     format(Sys.time(), "%d%b%Y_%H%M"), ".rds")
-saveRDS(pred_pe, here::here(path, file_name))
+saveRDS(pred_pe, here::here(path, pred_pe_fname))
 diff_time <- Sys.time() - start_time
 diff_time
 
-df_cp <- pred_pe %>%
+pred_pe %>%
   group_by(n_h_l) %>%
   summarise(cp_A = mean(indCover_pe_A),
             cp_cA = mean(indCover_pe_cA),
             cp_B = mean(indCover_pe_B),
             .groups = "drop")
-df_cp
+
+thres <- 0.7
+pred_pe %>%
+  group_by(n_h_l) %>%
+  summarise(p_ll95pe_above_thres = mean(lb_pe_B > thres), 
+            .groups = "drop")
 
 if (plot_est_pe){
   combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
@@ -260,10 +266,55 @@ if (plot_est_pe){
          height = 5, width = 15)  
 }
 
-pred_pe <- readRDS(here::here(path, "predPE_highDose_h=1_1_1_v4.rds"))
+if (plot_cp_pe){
+  df <- readRDS(here::here(path, pred_pe_fname)) %>%
+    group_by(n_h_l) %>%
+    summarise(med_ptEst_pe_A = as.numeric(quantile(ptEst_pe_A, prob = 0.5)),
+              med_ptEst_pe_cA = as.numeric(quantile(ptEst_pe_cAB, prob = 0.5)),
+              med_ptEst_pe_B = as.numeric(quantile(ptEst_pe_cAB, prob = 0.5)),
+              med_lb_pe_A = as.numeric(quantile(lb_pe_A, prob = 0.5)),
+              med_ub_pe_A = as.numeric(quantile(ub_pe_A, prob = 0.5)),
+              med_lb_pe_cA = as.numeric(quantile(lb_pe_cA, prob = 0.5)),
+              med_ub_pe_cA = as.numeric(quantile(ub_pe_cA, prob = 0.5)),
+              med_lb_pe_B = as.numeric(quantile(lb_pe_B, prob = 0.5)),
+              med_ub_pe_B = as.numeric(quantile(ub_pe_B, prob = 0.5)),
+              cp_A = mean(indCover_pe_A),
+              cp_cA = mean(indCover_pe_cA),
+              cp_B = mean(indCover_pe_B),
+              .groups = "drop") %>%
+    pivot_longer(cols = -n_h_l,
+                 names_to = c(".value", "method"),
+                 names_pattern = "(.*)_(A|cA|B)$") %>%
+    mutate(n_h_l = factor(n_h_l),
+           method = forcats::fct_recode(factor(method, 
+                                               levels = c("A", "cA", "B")),
+                                        "Method A" = "A",
+                                        "Bias-Corrected Method A" = "cA",
+                                        "Method B" = "B"),
+           cp_fmt = sapply(cp, function(x) format(round(x, 2), nsmall = 2)))
+  
+  p <- ggplot(df, aes(x = n_h_l, y = med_ptEst_pe)) +
+    geom_hline(yintercept = true_pe, linetype = "dashed", size = 0.8, color = "red") +
+    geom_errorbar(aes(ymin = med_lb_pe, ymax = med_ub_pe), width = 0.4) +
+    geom_point(size = 2) +
+    geom_text(aes(label = cp_fmt, y = med_lb_pe),
+              vjust = 1.7, size = 3) +
+    coord_cartesian(ylim = c(0.7, 1)) +
+    scale_y_continuous(breaks = seq(0.7, 1, by = 0.1),
+                       labels = paste0(seq(0.7, 1, by = 0.1) * 100, "%")) +
+    facet_grid(. ~ method, scales = "fixed") +
+    labs(x = "Combo-AMP High-Ab + Low-Ab Endpoint Count",
+         y = "Monte-Carlo Median Estimate and 95% CI for PE") +
+    theme_bw()
+  p
+  ggsave(here::here(path, paste0("bias_cp_", unlist(strsplit(pred_pe_fname, "\\."))[1], ".pdf")), 
+         plot = p, height = 4, width = 6)
+}
+
 if (plot_pred_pe){
+  df <- readRDS(here::here(path, pred_pe_fname))
   p <- list()
-  p[[1]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = ptEst_pe)) +
+  p[[1]] <- ggplot(df, aes(x = factor(n_h_l), y = ptEst_pe_B)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
                  outlier.alpha = 0.5) +
     # geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
@@ -275,18 +326,21 @@ if (plot_pred_pe){
          title = "Algorithm B:\nPoint Estimate of PE") +
     theme_bw()
   
-  p[[2]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_B)) +
+  p[[2]] <- ggplot(df, aes(x = factor(n_h_l), y = lb_pe_B)) +
+    geom_hline(yintercept = true_pe, linetype = "dashed", size = 0.8, color = "red") +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
                  outlier.alpha = 0.5) +
     coord_cartesian(ylim = c(0, 1)) +
     scale_y_continuous(breaks = seq(0, 1, by = 0.2),
                        labels = paste0(seq(0, 1, by = 0.2) * 100, "%")) +
     labs(x = "Combo-AMP High-Ab + Low-Ab\nEndpoint Count",
-         y = "Monte-Carlo Sampling Distribution of\nLower 95% Uncertainty Limit for PE",
-         title = "Algorithm B:\nLower 95% Uncertainty Limit") +
+         y = "Monte-Carlo Sampling Distribution of\nLower 95% Confidence Limit for PE") +
     theme_bw()
+  p[[2]]
+  ggsave(here::here(path, paste0("LL95PE_B_", unlist(strsplit(pred_pe_fname, "\\."))[1], ".pdf")), 
+         plot = p[[2]], height = 5 * 0.9, width = 4 * 0.9)
   
-  p[[3]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_A)) +
+  p[[3]] <- ggplot(df, aes(x = factor(n_h_l), y = lb_pe_cA)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
                  outlier.alpha = 0.5) +
     coord_cartesian(ylim = c(0, 1)) +
@@ -297,9 +351,9 @@ if (plot_pred_pe){
          title = "Bias-Corrected Algorithm A:\nLower 95% Uncertainty Limit") +
     theme_bw()
   
-  combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
-  ggsave(here::here(path, "MCdistribPredPE_highDose_h=1_1_1_v4.pdf"), plot = combined_p, 
-         height = 5, width = 10)
+  # combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
+  # ggsave(here::here(path, "MCdistribPredPE_highDose_h=1_1_1_v4.pdf"), plot = combined_p, 
+  #        height = 5, width = 10)
 }
 
 
