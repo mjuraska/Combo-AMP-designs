@@ -22,7 +22,7 @@ n_cores <- 20
 pwr <- 0.9
 path <- "output/2025-07-29"
 
-n_total <- 10821
+n_total <- 11337
 
 pop_conc_files <- c("sim_PK_vrc07_fixDose0.4g_wk26.csv",
                     "sim_PK_vrc07_fixDose3.2g_wk26.csv",

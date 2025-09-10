@@ -380,22 +380,36 @@ predict_pe_dt <- function(df_pe, scale_c, df_comb_pt80, approxfun_rule = 1){
   # create interpolation functions once
   f_pe <- approxfun(x = df_pe$pt80, y = df_pe$TE, rule = approxfun_rule)
   f_lb <- approxfun(x = df_pe$pt80, y = df_pe$LB, rule = approxfun_rule)
+  f_ub <- approxfun(x = df_pe$pt80, y = df_pe$UB, rule = approxfun_rule)
   
   df_comb_pt80[, `:=`(logrr = log(1 - f_pe(comb_pt80)),
+                      lb = log(1 - f_ub(comb_pt80)),
                       ub = log(1 - f_lb(comb_pt80)))]
   
-  df_summary <- df_comb_pt80[, .(mean_logrr = mean(logrr, na.rm = TRUE),
+  df_summary <- df_comb_pt80[, .(mean_pe = mean(1 - exp(logrr), na.rm = TRUE),
+                                 mean_logrr = mean(logrr, na.rm = TRUE),
+                                 mean_lb = mean(lb, na.rm = TRUE),
                                  mean_ub = mean(ub, na.rm = TRUE)), 
                              by = .(id, time)]
   
-  df_pred_logrr <- df_summary[, .(med_logrr = as.numeric(quantile(mean_logrr, prob = 0.5, na.rm = TRUE)),
-                                  ub_A = as.numeric(quantile(mean_logrr, prob = 0.975, na.rm = TRUE)),
-                                  ub_B = as.numeric(quantile(mean_ub, prob = 0.5, na.rm = TRUE))), 
-                              by = time]
+  df_pred <- df_summary[, .(med_pe = as.numeric(quantile(mean_pe, prob = 0.5, na.rm = TRUE)),
+                            med_logrr = as.numeric(quantile(mean_logrr, prob = 0.5, na.rm = TRUE)),
+                            lb_pe_A = as.numeric(quantile(mean_pe, prob = 0.025, na.rm = TRUE)),
+                            ub_pe_A = as.numeric(quantile(mean_pe, prob = 0.975, na.rm = TRUE)),
+                            lb_logrr_cA = as.numeric(quantile(mean_logrr, prob = 0.025, na.rm = TRUE)),
+                            ub_logrr_cA = as.numeric(quantile(mean_logrr, prob = 0.975, na.rm = TRUE)),
+                            lb_logrr_B = as.numeric(quantile(mean_lb, prob = 0.5, na.rm = TRUE)),
+                            ub_logrr_B = as.numeric(quantile(mean_ub, prob = 0.5, na.rm = TRUE))), 
+                        by = time]
   
-  return(c(ptEst_pe = 1 - exp(mean(df_pred_logrr$med_logrr, na.rm = TRUE)),
-           lb_pe_A  = 1 - exp(mean(df_pred_logrr$ub_A, na.rm = TRUE)),
-           lb_pe_B  = 1 - exp(mean(df_pred_logrr$ub_B, na.rm = TRUE))))
+  return(c(ptEst_pe_A = mean(df_pred$med_pe, na.rm = TRUE),
+           ptEst_pe_cAB = 1 - exp(mean(df_pred$med_logrr, na.rm = TRUE)),
+           lb_pe_A  = mean(df_pred$lb_pe_A, na.rm = TRUE),
+           ub_pe_A  = mean(df_pred$ub_pe_A, na.rm = TRUE),
+           lb_pe_cA  = 1 - exp(mean(df_pred$ub_logrr_cA, na.rm = TRUE)),
+           ub_pe_cA  = 1 - exp(mean(df_pred$lb_logrr_cA, na.rm = TRUE)),
+           lb_pe_B  = 1 - exp(mean(df_pred$ub_logrr_B, na.rm = TRUE)),
+           ub_pe_B  = 1 - exp(mean(df_pred$lb_logrr_B, na.rm = TRUE))))
 }
 
 predict_pe_parallel <- function(df_pe, scale_c, df_comb_pt80, 

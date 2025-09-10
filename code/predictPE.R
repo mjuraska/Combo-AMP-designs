@@ -1,5 +1,4 @@
 library(tidyverse)
-library(np)
 
 source(here::here("code/param.R"))
 source(here::here("code/utils.R"))
@@ -176,11 +175,14 @@ ggsave(here::here(file.path(path, "truePEbycombPT80_dataFromLily.pdf")), plot = 
 
 # Run the simulation ------------------------------------------------------
 
+true_pe <- 0.9
+h <- c(1, 1, 1)
+
 # get PT80s of a new regimen
 d_pt80 <- get_comb_pt80(d_ic80, 
-                        h = c(1, 1, 1), 
+                        h = h, 
                         df_c = d_ind_conc %>% 
-                          filter(id %in% c(1:200, 1001:1200)))
+                          filter(id %in% 1001:1400))
 
 dens <- density(d_ic80$log10_comb_ic80, n = 1000)
 
@@ -201,7 +203,7 @@ for (j in 1:length(n_h_l)){
                               rate_cens = rate_cens, n_target_cases_h_l = n_h_l[j],
                               dens = dens, beta = beta, iter = iter)
   
-  idx <- which(sapply(l_pe, function(x){ is.character(x) }))
+  idx <- which(sapply(l_pe, function(x){ is.character(x) | is.na(x) }))
   if (length(idx) > 0){ l_pe <- l_pe[-idx] }
   
   if (plot_est_pe){
@@ -232,10 +234,25 @@ for (j in 1:length(n_h_l)){
   pred_pe[[j]]$n_h_l <- n_h_l[j]
 }
 
-pred_pe <- bind_rows(pred_pe) 
-saveRDS(pred_pe, here::here(path, "predPE_lowHighDoseMix_h=1_1_1_v3.rds"))
+pred_pe <- bind_rows(pred_pe) %>%
+  mutate(indCover_pe_A = as.numeric(lb_pe_A < true_pe & ub_pe_A > true_pe),
+         indCover_pe_cA = as.numeric(lb_pe_cA < true_pe & ub_pe_cA > true_pe),
+         indCover_pe_B = as.numeric(lb_pe_B < true_pe & ub_pe_B > true_pe))
+file_name <- paste0("predPE_highDose_h=", 
+                    paste(sapply(h, format, decimal.mark = ","), collapse = "_"), 
+                    "_", 
+                    format(Sys.time(), "%d%b%Y_%H%M"), ".rds")
+saveRDS(pred_pe, here::here(path, file_name))
 diff_time <- Sys.time() - start_time
 diff_time
+
+df_cp <- pred_pe %>%
+  group_by(n_h_l) %>%
+  summarise(cp_A = mean(indCover_pe_A),
+            cp_cA = mean(indCover_pe_cA),
+            cp_B = mean(indCover_pe_B),
+            .groups = "drop")
+df_cp
 
 if (plot_est_pe){
   combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
@@ -243,42 +260,45 @@ if (plot_est_pe){
          height = 5, width = 15)  
 }
 
-# pred_pe <- readRDS(here::here(path, "predPE_lowHighDoseMix_h=1_1_1_v2.rds"))
+pred_pe <- readRDS(here::here(path, "predPE_highDose_h=1_1_1_v4.rds"))
 if (plot_pred_pe){
   p <- list()
   p[[1]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = ptEst_pe)) +
-    geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
+    geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
+                 outlier.alpha = 0.5) +
     # geom_hline(yintercept = 1 - altHR, linetype = "dashed") +
-    coord_cartesian(ylim = c(-0.2, 1)) +
-    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
-                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
-    labs(x = "High-Ab + Low-Ab Endpoint Count",
+    coord_cartesian(ylim = c(0, 1)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2),
+                       labels = paste0(seq(0, 1, by = 0.2) * 100, "%")) +
+    labs(x = "Combo-AMP High-Ab + Low-Ab\nEndpoint Count",
          y = "Monte-Carlo Sampling Distribution of\nPoint Estimates of PE",
-         title = "Point Estimate of PE") +
+         title = "Algorithm B:\nPoint Estimate of PE") +
     theme_bw()
   
   p[[2]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_B)) +
-    geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
-    coord_cartesian(ylim = c(-0.2, 1)) +
-    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
-                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
-    labs(x = "High-Ab + Low-Ab Endpoint Count",
+    geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
+                 outlier.alpha = 0.5) +
+    coord_cartesian(ylim = c(0, 1)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2),
+                       labels = paste0(seq(0, 1, by = 0.2) * 100, "%")) +
+    labs(x = "Combo-AMP High-Ab + Low-Ab\nEndpoint Count",
          y = "Monte-Carlo Sampling Distribution of\nLower 95% Uncertainty Limit for PE",
          title = "Algorithm B:\nLower 95% Uncertainty Limit") +
     theme_bw()
   
   p[[3]] <- ggplot(pred_pe, aes(x = factor(n_h_l), y = lb_pe_A)) +
-    geom_boxplot(color = "black", width = 0.5, lwd = 0.6) +
-    coord_cartesian(ylim = c(-0.2, 1)) +
-    scale_y_continuous(breaks = seq(-0.2, 1, by = 0.2),
-                       labels = paste0(seq(-0.2, 1, by = 0.2) * 100, "%")) +
-    labs(x = "High-Ab + Low-Ab Endpoint Count",
+    geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
+                 outlier.alpha = 0.5) +
+    coord_cartesian(ylim = c(0, 1)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2),
+                       labels = paste0(seq(0, 1, by = 0.2) * 100, "%")) +
+    labs(x = "Combo-AMP High-Ab + Low-Ab\nEndpoint Count",
          y = "Monte-Carlo Sampling Distribution of\nLower 95% Uncertainty Limit for PE",
-         title = "Algorithm A:\nLower 95% Uncertainty Limit") +
+         title = "Bias-Corrected Algorithm A:\nLower 95% Uncertainty Limit") +
     theme_bw()
   
   combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
-  ggsave(here::here(path, "MCdistribPredPE_lowHighDoseMix_h=1_1_1_v3.pdf"), plot = combined_p, 
+  ggsave(here::here(path, "MCdistribPredPE_highDose_h=1_1_1_v4.pdf"), plot = combined_p, 
          height = 5, width = 10)
 }
 
