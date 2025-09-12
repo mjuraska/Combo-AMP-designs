@@ -193,7 +193,7 @@ plot_pred_pe <- TRUE
 plot_cp_pe <- TRUE
 p <- list()
 pred_pe <- list()
-n_h_l <- c(30, 35, 40, 45)
+n_h_l <- 34:39
 
 start_time <- Sys.time()
 for (j in 1:length(n_h_l)){
@@ -312,7 +312,8 @@ if (plot_cp_pe){
 }
 
 if (plot_pred_pe){
-  df <- readRDS(here::here(path, pred_pe_fname))
+  df <- readRDS(here::here(path, pred_pe_fname)) %>%
+    filter(n_h_l == 36)
   p <- list()
   p[[1]] <- ggplot(df, aes(x = factor(n_h_l), y = ptEst_pe_B)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
@@ -328,17 +329,18 @@ if (plot_pred_pe){
   
   p[[2]] <- ggplot(df, aes(x = factor(n_h_l), y = lb_pe_B)) +
     geom_hline(yintercept = true_pe, linetype = "dashed", size = 0.8, color = "red") +
+    geom_hline(yintercept = 0.7, linetype = "dotted", size = 1.2, color = "blue") +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 
                  outlier.alpha = 0.5) +
-    coord_cartesian(ylim = c(0, 1)) +
-    scale_y_continuous(breaks = seq(0, 1, by = 0.2),
-                       labels = paste0(seq(0, 1, by = 0.2) * 100, "%")) +
-    labs(x = "Combo-AMP High-Ab + Low-Ab\nEndpoint Count",
+    coord_cartesian(ylim = c(0.4, 1)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.1),
+                       labels = paste0(seq(0, 1, by = 0.1) * 100, "%")) +
+    labs(x = "Combo-AMP\nHigh-Ab + Low-Ab\nEndpoint Count",
          y = "Monte-Carlo Sampling Distribution of\nLower 95% Confidence Limit for PE") +
     theme_bw()
   p[[2]]
   ggsave(here::here(path, paste0("LL95PE_B_", unlist(strsplit(pred_pe_fname, "\\."))[1], ".pdf")), 
-         plot = p[[2]], height = 5 * 0.9, width = 4 * 0.9)
+         plot = p[[2]], height = 5 * 0.9, width = 3 * 0.9)
   
   p[[3]] <- ggplot(df, aes(x = factor(n_h_l), y = lb_pe_cA)) +
     geom_boxplot(color = "black", width = 0.5, lwd = 0.6, outlier.shape = 1, 

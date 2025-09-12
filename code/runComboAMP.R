@@ -11,14 +11,14 @@ source(here::here("code/utils.R"))
 registerDoParallel(cores = n_cores)
 
 for (n in n_target_cases:250){
-  df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
-                             altHR_l = altHR_l, info_fractions = info_fractions,
-                             alpha_1sided = alpha_1sided,
-                             n_target_cases = n,
-                             rate_pla = rate_pla,  rate_cens = rate_cens,
-                             p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
-                             n_enroll_m = n_enroll_m, tau = tau, iter = iter,
-                             n_cores = n_cores, verbose = FALSE)
+  df <- run_stage1(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
+                   altHR_l = altHR_l, info_fractions = info_fractions,
+                   alpha_1sided = alpha_1sided,
+                   n_target_cases = n,
+                   rate_pla = rate_pla,  rate_cens = rate_cens,
+                   p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
+                   n_enroll_m = n_enroll_m, tau = tau, iter = iter,
+                   n_cores = n_cores, verbose = FALSE)
   power <- mean(df$reject_H0)
   cat("n =", n, "; power =", power, "\n")
 
@@ -30,14 +30,14 @@ for (n in n_target_cases:250){
 
 # Get sample size and endpoint splits -------------------------------------
 
-df <- oper_chars_eff_phase(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
-                           altHR_l = altHR_l, info_fractions = info_fractions, 
-                           alpha_1sided = alpha_1sided, 
-                           n_target_cases = n_target_cases,
-                           rate_pla = rate_pla,  rate_cens = rate_cens,
-                           p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
-                           n_enroll_m = n_enroll_m, tau = tau, iter = iter,
-                           n_cores = n_cores, verbose = TRUE)
+df <- run_stage1(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
+                 altHR_l = altHR_l, info_fractions = info_fractions, 
+                 alpha_1sided = alpha_1sided, 
+                 n_target_cases = n_target_cases,
+                 rate_pla = rate_pla,  rate_cens = rate_cens,
+                 p_ab_h = p_ab_h, p_ab_l = p_ab_l, p_pla = p_pla,
+                 n_enroll_m = n_enroll_m, tau = tau, iter = iter,
+                 n_cores = n_cores, verbose = TRUE)
 mean(df$reject_H0)
 
 plot_time_to_end_stage1(df, path = path)

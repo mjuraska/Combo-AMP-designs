@@ -33,7 +33,7 @@ N <- function(n, p1=0.5, p0=0.5, rate1, rate0, rateC, tau=72/52){
   return(n / (p1 * pEvent1 + p0 * pEvent0))
 }
 
-primary_test <- function(df, nullHR, alpha_1sided){
+perform_test <- function(df, nullHR, alpha_1sided){
   tab <- with(df, table(tx, eventInd))
   
   if(tab[2, 2] == 0){
@@ -44,8 +44,7 @@ primary_test <- function(df, nullHR, alpha_1sided){
                                   conf.level = 1 - 2 * alpha_1sided)
     pval <- ifelse(CIscore["upr.ci"] < nullHR, 1e-9, 1)
   } else {
-    sfit <- summary(coxph(Surv(eventTime, eventInd) ~ tx, 
-                          data = mutate(df, tx = as.numeric(tx > 0))))
+    sfit <- summary(coxph(Surv(eventTime, eventInd) ~ tx, data = df))
     stat <- (sfit$coef[1, 1] - log(nullHR)) / sfit$coef[1, 3]
     pval <- pnorm(stat)
   }
@@ -63,10 +62,67 @@ perform_stage1_analysis <- function(df, at_case_count, nullHR, alpha_1sided){
            eventTime = pmax(calTime - enrollTime, 0)) %>%
     filter(eventTime > 0)
   
-  pval <- primary_test(df %>% filter(prim_comp == 1), nullHR = nullHR, 
+  pval <- perform_test(df %>% 
+                         filter(prim_comp == 1) %>% 
+                         mutate(tx = as.numeric(tx > 0)), 
+                       nullHR = nullHR, 
                        alpha_1sided = alpha_1sided)
   
-  return(list(df = df, anal_time = anal_time, pval = pval))
+  reject_H0 <- as.numeric(pval <= alpha_1sided)
+  
+  return(list(df = df, at_case_count = at_case_count, anal_time = anal_time, 
+              pval = pval, reject_H0 = reject_H0))
+}
+
+perform_stage2_analysis <- function(df, at_case_count, nullHR, alpha_1sided){
+  anal_time <- sort(df %>% 
+                      filter(eventInd == 1) %>% 
+                      pull(calTime))[at_case_count]
+  df <- df %>%
+    mutate(eventInd = if_else(calTime > anal_time, 0, eventInd),
+           calTime = pmin(calTime, anal_time),
+           eventTime = pmax(calTime - enrollTime, 0)) %>%
+    filter(eventTime > 0)
+  
+  pval <- perform_test(df %>% mutate(tx = tx_stage2 - 1), 
+                       nullHR = nullHR, 
+                       alpha_1sided = alpha_1sided)
+  
+  reject_H0 <- as.numeric(pval <= alpha_1sided)
+  
+  return(list(df = df, anal_time = anal_time, 
+              pval = pval, reject_H0 = reject_H0))
+}
+
+get_cum_events <- function(tm, df){
+  idx <- which(df$calTime <= tm)
+  if (length(idx) == 0){
+    return(0)
+  } else {
+    return(df$cumEvents[max(idx)])
+  }
+}
+
+get_alpha_stage2 <- function(df, stage1_anal_time, stage2_target_h_l,
+                             alpha_1sided){
+  df <- df %>%
+    arrange(calTime) %>%
+    mutate(cumEvents = cumsum(eventInd))
+  
+  # Stage 2 analysis times in 6-month steps
+  a_times <- seq(stage1_anal_time, max(df$calTime), by = 0.5)
+  
+  cum_events <- sapply(a_times, get_cum_events, df = df)
+  
+  cutoff <- which(cum_events >= stage2_target_h_l)[1]
+  if (!is.na(cutff)){
+    cum_events <- cum_events[1:cutoff]  
+  }
+  
+  nom_alpha <- ldbounds::ldBounds(alpha = alpha_1sided, 
+                                  t = cum_events / dplyr::last(cum_events),
+                                  iuse = 1, sides = 1)$nom.alpha
+  return(list(nom_alpha = nom_alpha, cum_events = cum_events))
 }
 
 #' @param compare Is the primary test for the comparison of high-dose mAb vs.
@@ -75,15 +131,15 @@ perform_stage1_analysis <- function(df, at_case_count, nullHR, alpha_1sided){
 #'   \code{compare} and the placebo arm, triggering the final primary test
 #' @param nullHR the null hypothesis HR for the comparison defined by \code{compare}
 #' @param info_fractions function assumes a single interim analysis
-oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h, 
-                                 altHR_l, method = "obf", 
-                                 info_fractions = c(0.5, 1), 
-                                 alpha_1sided = 0.025, 
-                                 n_target_cases, rate_pla, 
-                                 rate_cens, p_ab_h = 0.2, 
-                                 p_ab_l = 0.4, p_pla = 0.4, 
-                                 n_enroll_m = NULL, tau, iter, n_cores,
-                                 verbose = TRUE, seed = 3291){
+run_stage1 <- function(compare = c("h", "l"), nullHR, altHR_h, 
+                       altHR_l, method = "obf", 
+                       info_fractions = c(0.5, 1), 
+                       alpha_1sided = 0.025, 
+                       n_target_cases, rate_pla, 
+                       rate_cens, p_ab_h = 0.2, 
+                       p_ab_l = 0.4, p_pla = 0.4, 
+                       n_enroll_m = NULL, tau, iter, n_cores,
+                       verbose = TRUE, seed = 3291){
   compare <- match.arg(compare)
   
   set.seed(seed)
@@ -184,11 +240,193 @@ oper_chars_eff_phase <- function(compare = c("h", "l"), nullHR, altHR_h,
       
       dat <- data.frame(iter = i, stop_at_IA = 0, anal_time = a$anal_time, 
                         pval = a$pval, 
-                        reject_H0 = as.numeric(a$pval <= alpha_seq[2]), 
+                        reject_H0 = a$reject_H0, 
                         n_cases_pla = split[1], 
                         n_cases_ab_l = split[2], 
                         n_cases_ab_h = split[3], 
                         mean_eventTime = mean(a$df$eventTime))
+      if (verbose){
+        return(list(dat = dat, msg = msg))
+      } else {
+        return(dat)  
+      }
+    }
+  }
+  
+  if (verbose){
+    cat(na.omit(sapply(out, "[[", "msg")))
+    out <- do.call(rbind, lapply(out, "[[", "dat"))
+  } else {
+    out <- do.call(rbind, out)  
+  }
+  
+  return(out)
+}
+
+#' @param compare Is the primary test for the comparison of high-dose mAb vs.
+#'   placebo (\code{"h"}) or low-dose mAb vs. placebo (\code{"l"})?
+#' @param n_target_cases number of cases, pooling over the mAb arm specified by
+#'   \code{compare} and the placebo arm, triggering the final primary test
+#' @param nullHR the null hypothesis HR for the comparison defined by \code{compare}
+#' @param info_fractions function assumes a single interim analysis
+run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h, 
+                              altHR_l, nullHR_h_l, method = "obf", 
+                              info_fractions = c(0.5, 1), 
+                              alpha_1sided = 0.025, 
+                              n_target_cases, n_stage2_target_cases_h_l, rate_pla, 
+                              rate_cens, p_ab_h = 0.2, 
+                              p_ab_l = 0.4, p_pla = 0.4, 
+                              n_enroll_m = NULL, tau, iter, n_cores,
+                              verbose = TRUE, seed = 3291){
+  compare <- match.arg(compare)
+  
+  set.seed(seed)
+  
+  out <- foreach(i = 1:iter) %dorng% {
+    source(here::here("code/utils.R"))
+    
+    p_ab_prim <- ifelse(compare == "h", p_ab_h, p_ab_l)
+    altHR_prim <- ifelse(compare == "h", altHR_h, altHR_l)
+    
+    alpha1_seq <- ldbounds::ldBounds(alpha = alpha_1sided, t = info_fractions,
+                                     iuse = 1, sides = 1)$nom.alpha
+    
+    # 1 Ab arm + placebo sample size 
+    n_2arm <- N(n_target_cases, p1 = p_ab_prim / (p_ab_prim + p_pla),
+                p0 = p_pla / (p_ab_prim + p_pla), rate1 = rate_pla * altHR_prim,
+                rate0 = rate_pla, rateC = rate_cens, tau = tau)
+    n_total <- n_2arm / (p_ab_prim + p_pla)
+    
+    # sample size in each arm
+    n_ab_h <- ceiling(n_total * p_ab_h)
+    n_ab_l <- ceiling(n_total * p_ab_l)
+    n_pla <- ceiling(n_total * p_pla)
+    
+    n_total <- n_ab_h + n_ab_l + n_pla
+    
+    # enrollment rate: 'n_enroll_m' participants / month
+    if (is.null(n_enroll_m)){
+      enrollPeriod <- 1.5
+    } else {
+      enrollPeriod <- (n_total / n_enroll_m) / 12
+    }
+    
+    # get expected number of cases in each of high and low-dose mAb arm
+    p_case_ab <- sapply(c(altHR_h, altHR_l), function(altHR){
+      rate <- rate_pla * altHR
+      r <- rate / (rate + rate_cens)
+      return(r - r * exp(-(rate + rate_cens) * tau))
+    })
+    e_n_cases_ab <- round(c(n_ab_h, n_ab_l) * p_case_ab, digits = 0)
+    e_n_cases_pla <- n_target_cases - ifelse(compare == "h", e_n_cases_ab[1], e_n_cases_ab[2])
+    
+    if (i == 1){
+      msg <- paste0("Total sample size for the 2 arms included in the primary comparison:", 
+                    ifelse(compare == "h", n_ab_h, n_ab_l) + n_pla, "\n",
+                    "Total sample size for all 3 arms:", n_total, "\n",
+                    "Expected number of events in the high-dose Ab arm:", e_n_cases_ab[1], "\n",
+                    "Expected number of events in the low-dose Ab arm:", e_n_cases_ab[2], "\n",
+                    "Expected number of events in the placebo arm:", e_n_cases_pla, "\n")  
+    } else {
+      msg <- NA
+    }
+    
+    enrollTime <- runif(n_total, max = enrollPeriod)
+    FPFI <- min(enrollTime)
+    enrollTime <- enrollTime - FPFI
+    tx <- rep(0:2, c(n_pla, n_ab_l, n_ab_h))
+    prim_comp <- as.numeric(tx != ifelse(compare == "h", 1, 2))
+    tm <- c(rexp(n_pla, rate = rate_pla), 
+            rexp(n_ab_l, rate = rate_pla * altHR_l),
+            rexp(n_ab_h, rate = rate_pla * altHR_h))
+    cens <- rexp(n_total, rate = rate_cens)
+    eventTime <- pmin(tm, cens)
+    eventInd <- as.numeric(tm <= cens)
+    calTime <- enrollTime + eventTime
+    df <- data.frame(enrollTime, tx, prim_comp, eventTime, eventInd, calTime)
+    
+    # stage 1 interim analysis
+    a1 <- perform_stage1_analysis(
+      df, 
+      at_case_count = ceiling(info_fractions[1] * n_target_cases),
+      nullHR = nullHR,
+      alpha_1sided = alpha1_seq[1]
+    )
+    
+    if (a1$reject_H0 == 0){
+      # proceed to stage 1 final analysis
+      a1 <- perform_stage1_analysis(
+        df, 
+        at_case_count = n_target_cases,
+        nullHR = nullHR,
+        alpha_1sided = alpha1_seq[2]
+      )
+    }
+    
+    if (a1$reject_H0 == 1){
+      # stage 2 is initiated; perform crossover
+      df <- df %>%
+        mutate(enrollTime = if_else(tx == 0, a1$anal_time, enrollTime),
+               tx_stage2 = if_else(tx == 0, rbinom(n_total, 1, 0.5) + 1, tx),
+               eventTime = if_else(tx == 0 & tx_stage2 == 1, rexp(n_total, rate = rate_pla * altHR_l), eventTime),
+               eventTime = if_else(tx == 0 & tx_stage2 == 2, rexp(n_total, rate = rate_pla * altHR_h), eventTime),
+               cens = rexp(n_total, rate = rate_cens),
+               eventTime = if_else(tx == 0, pmin(eventTime, cens), eventTime),
+               eventInd = if_else(tx == 0, as.numeric(eventTime <= cens), eventInd),
+               calTime = if_else(tx == 0, enrollTime + eventTime, calTime))
+      
+      stage2_IA <- get_alpha_stage2(df, stage1_anal_time = a1$anal_time,
+                                    stage2_target_h_l = n_stage2_target_cases_h_l,
+                                    alpha_1sided = alpha_1sided)
+      alpha2_seq <- stage2_IA$nom_alpha
+      cum_events <- stage2_IA$cum_events
+      
+      # the first stage 2 analysis
+      a2 <- perform_stage2_analysis(
+        df, 
+        at_case_count = cum_events[1],
+        nullHR = nullHR_h_l,
+        alpha_1sided = alpha2_seq[1]
+      )
+      
+      k <- 2
+      while (a2$reject_H0 == 0 & k <= length(cum_events)){
+        a2 <- perform_stage2_analysis(
+          df, 
+          at_case_count = cum_events[k],
+          nullHR = nullHR_h_l,
+          alpha_1sided = alpha2_seq[k]
+        )
+        k <- k + 1
+      }
+      
+      split <- as.numeric(with(a2$df, tapply(eventInd, tx_stage2, sum)))
+      
+      dat <- data.frame(iter = i, init_stage2 = 1, stage2_stop_time = a2$anal_time, 
+                        stage2_pval = a2$pval, 
+                        stage2_reject_H0 = a2$reject_H0, 
+                        n_cases_ab_pla = sum(a1$df %>% filter(tx == 0) %>% pull(eventInd)),
+                        n_cases_ab_l = split[1], 
+                        n_cases_ab_h = split[2])
+      
+      if (verbose){
+        return(list(dat = dat, msg = msg))
+      } else {
+        return(dat)  
+      }
+      
+    } else {
+      # stage 2 is not initiated and the trial is over
+      # TO DO: finish the output
+      split <- as.numeric(with(a1$df, tapply(eventInd, tx, sum)))
+      
+      dat <- data.frame(iter = i, init_stage2 = 0, stage2_stop_time = NA, 
+                        stage2_pval = NA, 
+                        stage2_reject_H0 = NA, 
+                        n_cases_pla = split[1], 
+                        n_cases_ab_l = split[2], 
+                        n_cases_ab_h = split[3])
+      
       if (verbose){
         return(list(dat = dat, msg = msg))
       } else {
