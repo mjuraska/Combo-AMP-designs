@@ -74,10 +74,14 @@ perform_stage1_analysis <- function(df, at_case_count, nullHR, alpha_1sided){
               pval = pval, reject_H0 = reject_H0))
 }
 
-perform_stage2_analysis <- function(df, at_case_count, nullHR, alpha_1sided){
-  anal_time <- sort(df %>% 
-                      filter(eventInd == 1) %>% 
-                      pull(calTime))[at_case_count]
+perform_stage2_analysis <- function(df, at_case_count = NULL, anal_time = NULL, 
+                                    nullHR, alpha_1sided){
+  if (is.null(anal_time)){
+    anal_time <- sort(df %>% 
+                        filter(eventInd == 1) %>% 
+                        pull(calTime))[at_case_count]  
+  }
+  
   df <- df %>%
     mutate(eventInd = if_else(calTime > anal_time, 0, eventInd),
            calTime = pmin(calTime, anal_time),
@@ -114,9 +118,16 @@ get_alpha_stage2 <- function(df, stage1_anal_time, stage2_target_h_l,
   
   cum_events <- sapply(a_times, get_cum_events, df = df)
   
-  cutoff <- which(cum_events >= stage2_target_h_l)[1]
-  if (!is.na(cutff)){
-    cum_events <- cum_events[1:cutoff]  
+  if (sum(cum_events <= stage2_target_h_l) == 0){
+    cum_events <- cum_events[1]
+  } else {
+    cum_events <- c(cum_events[cum_events < 30], stage2_target_h_l)
+    
+    # remove consecutive duplicates
+    cum_events <- cum_events[c(TRUE, diff(cum_events) > 0)]
+    
+    # at least 5 endpoints (l + h) required for the first Stage 2 IA
+    cum_events <- cum_events[cum_events >= 4]
   }
   
   nom_alpha <- ldbounds::ldBounds(alpha = alpha_1sided, 
@@ -268,10 +279,10 @@ run_stage1 <- function(compare = c("h", "l"), nullHR, altHR_h,
 #' @param n_target_cases number of cases, pooling over the mAb arm specified by
 #'   \code{compare} and the placebo arm, triggering the final primary test
 #' @param nullHR the null hypothesis HR for the comparison defined by \code{compare}
-#' @param info_fractions function assumes a single interim analysis
+#' @param info_fractions_stage1 function assumes a single interim analysis
 run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h, 
                               altHR_l, nullHR_h_l, method = "obf", 
-                              info_fractions = c(0.5, 1), 
+                              info_fractions_stage1 = c(0.5, 1), 
                               alpha_1sided = 0.025, 
                               n_target_cases, n_stage2_target_cases_h_l, rate_pla, 
                               rate_cens, p_ab_h = 0.2, 
@@ -288,7 +299,8 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
     p_ab_prim <- ifelse(compare == "h", p_ab_h, p_ab_l)
     altHR_prim <- ifelse(compare == "h", altHR_h, altHR_l)
     
-    alpha1_seq <- ldbounds::ldBounds(alpha = alpha_1sided, t = info_fractions,
+    alpha1_seq <- ldbounds::ldBounds(alpha = alpha_1sided, 
+                                     t = info_fractions_stage1,
                                      iuse = 1, sides = 1)$nom.alpha
     
     # 1 Ab arm + placebo sample size 
@@ -348,7 +360,7 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
     # stage 1 interim analysis
     a1 <- perform_stage1_analysis(
       df, 
-      at_case_count = ceiling(info_fractions[1] * n_target_cases),
+      at_case_count = ceiling(info_fractions_stage1[1] * n_target_cases),
       nullHR = nullHR,
       alpha_1sided = alpha1_seq[1]
     )
@@ -365,15 +377,21 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
     
     if (a1$reject_H0 == 1){
       # stage 2 is initiated; perform crossover
+      tx_stage2_draw <- rbinom(n_total, 1, 0.5) + 1
+      eventTime_l_draw <- rexp(n_total, rate = rate_pla * altHR_l)
+      eventTime_h_draw <- rexp(n_total, rate = rate_pla * altHR_h)
+      
       df <- df %>%
         mutate(enrollTime = if_else(tx == 0, a1$anal_time, enrollTime),
-               tx_stage2 = if_else(tx == 0, rbinom(n_total, 1, 0.5) + 1, tx),
-               eventTime = if_else(tx == 0 & tx_stage2 == 1, rexp(n_total, rate = rate_pla * altHR_l), eventTime),
-               eventTime = if_else(tx == 0 & tx_stage2 == 2, rexp(n_total, rate = rate_pla * altHR_h), eventTime),
+               tx_stage2 = if_else(tx == 0, tx_stage2_draw, tx),
+               tm  = case_when(tx == 0 & tx_stage2 == 1 ~ eventTime_l_draw,
+                               tx == 0 & tx_stage2 == 2 ~ eventTime_h_draw,
+                               TRUE ~ eventTime),
                cens = rexp(n_total, rate = rate_cens),
-               eventTime = if_else(tx == 0, pmin(eventTime, cens), eventTime),
-               eventInd = if_else(tx == 0, as.numeric(eventTime <= cens), eventInd),
-               calTime = if_else(tx == 0, enrollTime + eventTime, calTime))
+               eventTime = if_else(tx == 0, pmin(tm, cens), eventTime),
+               eventInd = if_else(tx == 0, as.numeric(tm <= cens), eventInd),
+               calTime = if_else(tx == 0, enrollTime + eventTime, calTime)) %>%
+        select(-tm, -cens)
       
       stage2_IA <- get_alpha_stage2(df, stage1_anal_time = a1$anal_time,
                                     stage2_target_h_l = n_stage2_target_cases_h_l,
@@ -384,7 +402,7 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
       # the first stage 2 analysis
       a2 <- perform_stage2_analysis(
         df, 
-        at_case_count = cum_events[1],
+        anal_time = a1$anal_time,
         nullHR = nullHR_h_l,
         alpha_1sided = alpha2_seq[1]
       )
@@ -402,10 +420,13 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
       
       split <- as.numeric(with(a2$df, tapply(eventInd, tx_stage2, sum)))
       
-      dat <- data.frame(iter = i, init_stage2 = 1, stage2_stop_time = a2$anal_time, 
+      dat <- data.frame(iter = i, 
+                        init_stage2 = 1, 
+                        stage2_stop_IA = k - 1, 
+                        stage2_stop_time = a2$anal_time, 
                         stage2_pval = a2$pval, 
                         stage2_reject_H0 = a2$reject_H0, 
-                        n_cases_ab_pla = sum(a1$df %>% filter(tx == 0) %>% pull(eventInd)),
+                        n_cases_pla = sum(a1$df %>% filter(tx == 0) %>% pull(eventInd)),
                         n_cases_ab_l = split[1], 
                         n_cases_ab_h = split[2])
       
@@ -417,10 +438,12 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
       
     } else {
       # stage 2 is not initiated and the trial is over
-      # TO DO: finish the output
       split <- as.numeric(with(a1$df, tapply(eventInd, tx, sum)))
       
-      dat <- data.frame(iter = i, init_stage2 = 0, stage2_stop_time = NA, 
+      dat <- data.frame(iter = i, 
+                        init_stage2 = 0, 
+                        stage2_stop_IA = 0,
+                        stage2_stop_time = a1$anal_time, 
                         stage2_pval = NA, 
                         stage2_reject_H0 = NA, 
                         n_cases_pla = split[1], 
@@ -736,7 +759,7 @@ plot_time_to_end_stage1 <- function(df, path){
   breaks <- c(1.5, 2, 2.5, 3, 3.5, m)
   labels <- c(1.5, 2, 2.5, 3, 3.5, round(m, 1))
   
-  p <- ggplot(df, aes(x = anal_time, y = ..density..)) +
+  p <- ggplot(df, aes(x = anal_time, y = after_stat(density))) +
     geom_histogram(fill = "cornsilk", color = "gray60") +
     geom_density() +
     geom_vline(xintercept = m, linetype = "dashed") +
@@ -845,6 +868,77 @@ plot_n_doses <- function(df, var_name, path,
   return(invisible(NULL))
 }
 
+plot_case_count_end_stage2 <- function(df, varname, path){
+  df <- df %>%
+    group_by(.data[[varname]]) %>%
+    summarise(p = n() / nrow(df)) %>%
+    ungroup()
+  
+  prefix <- case_when(grepl("l$", varname) ~ "Low-Dose",
+                      grepl("h$", varname) ~ "High-Dose",
+                      TRUE ~ "Low- and High-Dose")
+  x_lab <- paste0(prefix, " Ab Arm Endpoint Count at End of Stage 2")
+  
+  p <- ggplot(df, aes(x = factor(.data[[varname]]), y = p)) +
+    geom_col() +
+    xlab(x_lab) +
+    ylab("Probability") +
+    theme_bw() +
+    theme(panel.border = element_blank(),
+          axis.text.x = element_text(size = 7))
+  
+  prefix <- case_when(grepl("l$", varname) ~ "l",
+                      grepl("h$", varname) ~ "h",
+                      TRUE ~ "h_l")
+  filename <- paste0(prefix, "_case_count_end_stage2.pdf")
+  ggsave(here::here(path, filename), 
+         plot = p, width = 6, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+plot_time_to_complete_trial <- function(df, path){
+  m <- mean(df$stage2_stop_time)
+  m_fmt <- format(round(m, 1), nsmall = 1)
+  # breaks <- c(1.5, 2, 2.5, 3, 3.5, m)
+  # labels <- c(1.5, 2, 2.5, 3, 3.5, round(m, 1))
+  
+  p <- ggplot(df, aes(x = stage2_stop_time, y = after_stat(density))) +
+    geom_histogram(fill = "cornsilk", color = "gray60") +
+    geom_density() +
+    geom_vline(xintercept = m, linetype = "dashed") +
+    annotate("text", x = m, y = Inf, hjust = -0.07, vjust = 1.5, 
+             label = paste0("Mean = ", m_fmt), size = 2.8) +
+    # scale_x_continuous(breaks = breaks, labels = labels, minor_breaks = NULL) +
+    xlab("Time (Years) from FPFI to Trial Completion") +
+    ylab("Density") +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, "time_to_complete_trial.pdf"), plot = p, 
+         width = 4.5, height = 4.5)
+  
+  return(invisible(NULL))
+}
+
+plot_stage2_IA_count <- function(df, path){
+  df <- df %>%
+    group_by(stage2_stop_IA) %>%
+    summarise(p = n() / nrow(df)) %>%
+    ungroup()
+  
+  p <- ggplot(df, aes(x = factor(stage2_stop_IA), y = p)) +
+    geom_col() +
+    xlab("Number of Stage 2 Interim Analyses") +
+    ylab("Probability") +
+    theme_bw() +
+    theme(panel.border = element_blank())
+  
+  ggsave(here::here(path, paste0("stage2_IA_count.pdf")), 
+         plot = p, width = 6, height = 4.5)
+  
+  return(invisible(NULL))
+}
 
 
 #' @param n_on_study number of originally enrolled participants at risk at the
