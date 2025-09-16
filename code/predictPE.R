@@ -1,4 +1,7 @@
+rm(list = ls(all = TRUE))
+
 library(tidyverse)
+library(grid)
 
 source(here::here("code/param.R"))
 source(here::here("code/utils.R"))
@@ -175,33 +178,42 @@ ggsave(here::here(file.path(path, "truePEbycombPT80_dataFromLily.pdf")), plot = 
 
 # Run the simulation ------------------------------------------------------
 
-true_pe <- 0.9
-h <- c(1, 1, 1)
-
-# get PT80s of a new regimen
-d_pt80 <- get_comb_pt80(d_ic80, 
-                        h = h, 
-                        df_c = d_ind_conc %>% 
-                          filter(id %in% 1001:1400))
+true_pe <- NA
+thres <- NA
+plot_est_pe <- FALSE
+plot_pred_pe <- TRUE
+plot_cp_pe <- FALSE
+p <- list()
+pred_pe <- list()
+n_h_l <- 36
 
 dens <- density(d_ic80$log10_comb_ic80, n = 1000)
 
 registerDoParallel(cores = n_cores)
 
-plot_est_pe <- FALSE
-plot_pred_pe <- TRUE
-plot_cp_pe <- TRUE
-p <- list()
-pred_pe <- list()
-n_h_l <- 34:39
+h <- list(c(1, 1, 1), 
+          c(0.7, 1, 1), 
+          c(1, 0.7, 1), 
+          c(1, 1, 0.7),
+          c(0.7, 0.7, 1),
+          c(0.7, 1, 0.7),
+          c(1, 0.7, 0.7),
+          c(0.7, 0.7, 0.7))
 
 start_time <- Sys.time()
-for (j in 1:length(n_h_l)){
+
+for (j in 1:length(h)){
+  # get PT80s of a new regimen
+  d_pt80 <- get_comb_pt80(d_ic80, 
+                          h = h[[j]], 
+                          df_c = d_ind_conc %>% 
+                            filter(id %in% 1001:1400))
+  
   # a list of data frames
   l_pe <- est_pe_by_log10ic80(n_total = n_total, p_pla = p_pla, p_ab_l = p_ab_l, 
                               p_ab_h = p_ab_h, rate_pla = rate_pla, 
                               altHR_l = altHR_l, altHR_h = altHR_h, 
-                              rate_cens = rate_cens, n_target_cases_h_l = n_h_l[j],
+                              rate_cens = rate_cens, n_target_cases_h_l = n_h_l,
                               dens = dens, beta = beta, iter = iter)
   
   idx <- which(sapply(l_pe, function(x){ is.character(x) | is.na(x) }))
@@ -220,10 +232,10 @@ for (j in 1:length(n_h_l)){
                          labels = seq(0, 1, by = 0.25) * 100) +
       labs(x = "Combination PT80 of Combo-AMP Regimen\nagainst Autologous Virus", 
            y = "Est. Prevention Efficacy (%)",
-           title = paste0("High-Ab + Low-Ab Endpoint Count = ", n_h_l[j])) +
+           title = paste0("High-Ab + Low-Ab Endpoint Count = ", n_h_l)) +
       theme_bw()
     
-    ggsave(here::here(file.path(path, paste0("estPEbycombPT80_target_h_l=", n_h_l[j], ".pdf"))), 
+    ggsave(here::here(file.path(path, paste0("estPEbycombPT80_target_h_l=", n_h_l, ".pdf"))), 
            plot = p[[j]], height = 5, width = 5)
   }
   
@@ -232,39 +244,90 @@ for (j in 1:length(n_h_l)){
   pred_pe[[j]] <- lapply(l_pe, predict_pe_dt, scale_c = gm_ind_conc, 
                          df_comb_pt80 = d_pt80, approxfun_rule = 1)
   pred_pe[[j]] <- as.data.frame(do.call(rbind, pred_pe[[j]]))
-  pred_pe[[j]]$n_h_l <- n_h_l[j]
+  pred_pe[[j]]$n_h_l <- n_h_l
+  pred_pe[[j]]$j <- j
+  pred_pe[[j]]$h_PGDM <- h[[j]][1]
+  pred_pe[[j]]$h_PGT <- h[[j]][2]
+  pred_pe[[j]]$h_VRC <- h[[j]][3]
 }
 
-pred_pe <- bind_rows(pred_pe) %>%
-  mutate(indCover_pe_A = as.numeric(lb_pe_A < true_pe & ub_pe_A > true_pe),
-         indCover_pe_cA = as.numeric(lb_pe_cA < true_pe & ub_pe_cA > true_pe),
-         indCover_pe_B = as.numeric(lb_pe_B < true_pe & ub_pe_B > true_pe))
-pred_pe_fname <- paste0("predPE_highDose_h=", 
-                    paste(sapply(h, format, decimal.mark = ","), collapse = "_"), 
-                    "_", 
+pred_pe <- bind_rows(pred_pe)
+
+if (!is.na(true_pe)){
+  pred_pe <- pred_pe %>%
+    mutate(indCover_pe_A = as.numeric(lb_pe_A < true_pe & ub_pe_A > true_pe),
+           indCover_pe_cA = as.numeric(lb_pe_cA < true_pe & ub_pe_cA > true_pe),
+           indCover_pe_B = as.numeric(lb_pe_B < true_pe & ub_pe_B > true_pe))  
+}
+
+pred_pe_fname <- paste0("predPE_highDose_n_h_l=", n_h_l, "_h=vary_",
                     format(Sys.time(), "%d%b%Y_%H%M"), ".rds")
 saveRDS(pred_pe, here::here(path, pred_pe_fname))
 diff_time <- Sys.time() - start_time
 diff_time
 
-pred_pe %>%
-  group_by(n_h_l) %>%
-  summarise(cp_A = mean(indCover_pe_A),
-            cp_cA = mean(indCover_pe_cA),
-            cp_B = mean(indCover_pe_B),
+if (!is.na(true_pe)){
+  pred_pe %>%
+    group_by(n_h_l) %>%
+    summarise(cp_A = mean(indCover_pe_A),
+              cp_cA = mean(indCover_pe_cA),
+              cp_B = mean(indCover_pe_B),
+              .groups = "drop")
+  
+  if (!is.na(thres)){
+    pred_pe %>%
+      group_by(n_h_l) %>%
+      summarise(p_ll95pe_above_thres = mean(lb_pe_B > thres), 
+                .groups = "drop")  
+  }
+}
+
+
+# Plot MC median estimates and CIs across different 'h' vectors -----------
+
+df <- readRDS(here::here(path, pred_pe_fname)) %>%
+  group_by(j) %>%
+  summarise(med_ptEst_pe_B = as.numeric(quantile(ptEst_pe_cAB, prob = 0.5)),
+            med_lb_pe_B = as.numeric(quantile(lb_pe_B, prob = 0.5)),
+            med_ub_pe_B = as.numeric(quantile(ub_pe_B, prob = 0.5)),
             .groups = "drop")
 
-thres <- 0.7
-pred_pe %>%
-  group_by(n_h_l) %>%
-  summarise(p_ll95pe_above_thres = mean(lb_pe_B > thres), 
-            .groups = "drop")
+h_labs <- sapply(h, function(vec) paste(vec, collapse = "\n"))
+
+p <- ggplot(df, aes(x = factor(j), y = med_ptEst_pe_B)) +
+  geom_errorbar(aes(ymin = med_lb_pe_B, ymax = med_ub_pe_B), width = 0.4) +
+  geom_point(size = 2) +
+  scale_x_discrete(labels = h_labs) +
+  coord_cartesian(ylim = c(0.75, 1), clip = "off") +
+  # scale_y_continuous(breaks = seq(0.7, 1, by = 0.1),
+  #                    labels = paste0(seq(0.7, 1, by = 0.1) * 100, "%")) +
+  labs(x = "Multiplicative Constants for IC80s of the 3 New bnAbs\nagainst All HVTN 704 Placebo Viruses",
+       y = "Monte-Carlo Median Estimate and 95% CI for PE") +
+  theme_bw() +
+  theme(axis.text.x = element_text(lineheight = 0.9),
+        plot.margin = margin(20, 5, 5, 5)) +
+  annotation_custom(
+    textGrob(paste(c("h1", "h2", "h3"), collapse = "\n"),
+             x = unit(0.02, "npc"),
+             y = unit(-0.085, "npc"),
+             just = "right",
+             gp = gpar(fontsize = 7.5, lineheight = 1.1))
+  )
+p
+ggsave(here::here(path, paste0(unlist(strsplit(pred_pe_fname, "\\."))[1], ".pdf")), 
+       plot = p, height = 4, width = 5.5)
+
+
+# Plot multiple panels of estimated PE by comb PT80 -----------------------
 
 if (plot_est_pe){
   combined_p <- Reduce(`+`, p) + plot_layout(ncol = 3)
   ggsave(here::here(path, "estPEbycombPT80_dataFromLily.pdf"), plot = combined_p, 
          height = 5, width = 15)  
 }
+
+
+# Plot MC med estimates, CIs, coverage prob if true PE known --------------
 
 if (plot_cp_pe){
   df <- readRDS(here::here(path, pred_pe_fname)) %>%
@@ -310,6 +373,9 @@ if (plot_cp_pe){
   ggsave(here::here(path, paste0("bias_cp_", unlist(strsplit(pred_pe_fname, "\\."))[1], ".pdf")), 
          plot = p, height = 4, width = 6)
 }
+
+
+# Plot MC distributions of est and LL95 for PE ----------------------------
 
 if (plot_pred_pe){
   df <- readRDS(here::here(path, pred_pe_fname)) %>%

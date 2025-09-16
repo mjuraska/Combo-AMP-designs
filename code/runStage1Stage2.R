@@ -1,3 +1,5 @@
+rm(list = ls(all = TRUE))
+
 source(here::here("code/param.R"))
 source(here::here("code/utils.R"))
 
@@ -22,10 +24,11 @@ saveRDS(df, here::here(path, "runStage1Stage2.rds"))
 
 # Plot results ------------------------------------------------------------
 
-# df <- readRDS(here::here(path, "runStage1Stage2.rds")) %>%
+df <- readRDS(here::here(path, "runStage1Stage2.rds")) %>%
 df <- df %>%
   mutate(n_cases_ab = n_cases_ab_h + n_cases_ab_l,
-         ind_trial_complete_end_stage1 = as.numeric(init_stage2 == 0 | (init_stage2 == 1 & stage2_stop_IA == 1)))
+         ind_trial_complete_end_stage1 = as.numeric(init_stage2 == 0 | (init_stage2 == 1 & stage2_stop_IA == 1)),
+         ind_stage2_success = n_cases_ab == 36)
 
 mean(df$n_cases_ab)
 mean(df$n_cases_ab >= 36)
