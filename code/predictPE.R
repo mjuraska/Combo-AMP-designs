@@ -72,13 +72,13 @@ gm_ind_conc <- exp(mean(log(
 
 p <- ggtern::ggtern(d_ic80, aes(x = w_PGDM, y = w_PGT, z = w_VRC)) +
   geom_point(size = 3, alpha = 0.5) +
-  scale_T_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
-  scale_L_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
-  scale_R_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
+  ggtern::scale_T_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
+  ggtern::scale_L_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
+  ggtern::scale_R_continuous(breaks = seq(0, 1, 0.1), labels = seq(0, 1, 0.1)) +
   theme(
     clip = "off"   # allow labels outside the panel
   ) +
-  labs(T = expression(w[1]), L = expression(w[2]), R = expression(w[3])) +
+  # labs(T = expression(w[1]), L = expression(w[2]), R = expression(w[3])) +
   theme_bw()
 
 ggsave(here::here(file.path(path, "potencyBasedWeights.pdf")), plot = p, height = 5, width = 5)
@@ -192,13 +192,13 @@ dens <- density(d_ic80$log10_comb_ic80, n = 1000)
 registerDoParallel(cores = n_cores)
 
 h <- list(c(1, 1, 1), 
-          c(0.7, 1, 1), 
-          c(1, 0.7, 1), 
-          c(1, 1, 0.7),
-          c(0.7, 0.7, 1),
-          c(0.7, 1, 0.7),
-          c(1, 0.7, 0.7),
-          c(0.7, 0.7, 0.7))
+          c(0.2, 1, 1), 
+          c(1, 0.2, 1), 
+          c(1, 1, 0.2),
+          c(0.2, 0.2, 1),
+          c(0.2, 1, 0.2),
+          c(1, 0.2, 0.2),
+          c(0.2, 0.2, 0.2))
 
 start_time <- Sys.time()
 

@@ -36,8 +36,11 @@ vignettes/*.pdf
 *.utf8.md
 *.knit.md
 
-Output files
-/output
+# Output files
+/output/
 
-Data files
-/data
+# Data files
+/data/
+
+# Archived files
+/Archive/

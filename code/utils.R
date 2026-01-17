@@ -231,7 +231,8 @@ run_stage1 <- function(compare = c("h", "l"), nullHR, altHR_h,
       dat <- data.frame(iter = i, stop_at_IA = 1, anal_time = a$anal_time, 
                         pval = a$pval, reject_H0 = 1, n_cases_pla = split[1], 
                         n_cases_ab_l = split[2], n_cases_ab_h = split[3], 
-                        mean_eventTime = mean(a$df$eventTime))
+                        mean_eventTime = mean(a$df$eventTime),
+                        mean_n_infu = mean(1 + floor(a$df$eventTime / 0.5)))
       if (verbose){
         return(list(dat = dat, msg = msg))
       } else {
@@ -255,7 +256,8 @@ run_stage1 <- function(compare = c("h", "l"), nullHR, altHR_h,
                         n_cases_pla = split[1], 
                         n_cases_ab_l = split[2], 
                         n_cases_ab_h = split[3], 
-                        mean_eventTime = mean(a$df$eventTime))
+                        mean_eventTime = mean(a$df$eventTime),
+                        mean_n_infu = mean(1 + floor(a$df$eventTime / 0.5)))
       if (verbose){
         return(list(dat = dat, msg = msg))
       } else {
@@ -420,15 +422,20 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
       
       split <- as.numeric(with(a2$df, tapply(eventInd, tx_stage2, sum)))
       
-      dat <- data.frame(iter = i, 
-                        init_stage2 = 1, 
-                        stage2_stop_IA = k - 1, 
-                        stage2_stop_time = a2$anal_time, 
-                        stage2_pval = a2$pval, 
-                        stage2_reject_H0 = a2$reject_H0, 
-                        n_cases_pla = sum(a1$df %>% filter(tx == 0) %>% pull(eventInd)),
-                        n_cases_ab_l = split[1], 
-                        n_cases_ab_h = split[2])
+      dat <- data.frame(
+        iter = i, 
+        init_stage2 = 1, 
+        stage2_stop_IA = k - 1, 
+        stage2_stop_time = a2$anal_time, 
+        stage2_pval = a2$pval, 
+        stage2_reject_H0 = a2$reject_H0, 
+        n_cases_pla = sum(a1$df %>% filter(tx == 0) %>% pull(eventInd)),
+        n_cases_ab_l = split[1], 
+        n_cases_ab_h = split[2],
+        mean_n_infu_h_l = mean(1 + floor(a2$df$eventTime[a2$df$tx != 0] / 0.5)),
+        mean_n_infu_p = ifelse(k == 2, 0, 
+                               mean(1 + floor(a2$df$eventTime[a2$df$tx == 0] / 0.5)))
+      )
       
       if (verbose){
         return(list(dat = dat, msg = msg))
@@ -448,7 +455,9 @@ run_stage1_stage2 <- function(compare = c("h", "l"), nullHR, altHR_h,
                         stage2_reject_H0 = NA, 
                         n_cases_pla = split[1], 
                         n_cases_ab_l = split[2], 
-                        n_cases_ab_h = split[3])
+                        n_cases_ab_h = split[3],
+                        mean_n_infu_h_l = mean(1 + floor(a1$df$eventTime[a1$df$tx != 0] / 0.5)),
+                        mean_n_infu_p = 0)
       
       if (verbose){
         return(list(dat = dat, msg = msg))
@@ -771,6 +780,10 @@ plot_time_to_end_stage1 <- function(df, path){
     theme_bw() +
     theme(panel.border = element_blank())
   
+  if (!dir.exists(here::here(path))){
+    dir.create(here::here(path), recursive = TRUE)
+  }
+  
   ggsave(here::here(path, "time_to_end_stage1.pdf"), plot = p, 
          width = 4.5, height = 4.5)
   
@@ -816,6 +829,10 @@ plot_h_vs_p_case_split_end_stage1 <- function(df, path){
     theme(axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
           panel.border = element_blank())
   
+  if (!dir.exists(here::here(path))){
+    dir.create(here::here(path), recursive = TRUE)
+  }
+  
   ggsave(here::here(path, paste0("h_vs_p_case_split_end_stage1.pdf")), 
          plot = p, width = 6, height = 4.5)
   
@@ -834,6 +851,10 @@ plot_l_case_count_end_stage1 <- function(df, path){
     ylab("Probability") +
     theme_bw() +
     theme(panel.border = element_blank())
+  
+  if (!dir.exists(here::here(path))){
+    dir.create(here::here(path), recursive = TRUE)
+  }
   
   ggsave(here::here(path, paste0("l_case_count_end_stage1.pdf")), 
          plot = p, width = 6, height = 4.5)
