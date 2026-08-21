@@ -4,8 +4,8 @@
 # (Schoenfeld, 1983, Biometrics) as a starting value
 ceiling(((qnorm(0.975) + qnorm(0.9))^2) / ((1/4) * (log(0.4) - log(0.1))^2))
 
-n_target_cases <- 44
-rate_pla <- 0.0075
+n_target_cases <- 43
+rate_pla <- 0.005
 nullHR <- 0.4
 altHR_h <- 0.1
 altHR_l <- 0.3
@@ -18,11 +18,11 @@ tau <- 1.5
 alpha_1sided <- 0.025
 info_fractions <- c(0.75, 1)
 iter <- 1000
-n_cores <- 20
+n_cores <- 7
 pwr <- 0.9
 nullHR_h_l <- 1
 n_stage2_target_cases_h_l <- 36
-path <- "output/2025-07-29"
+path <- "output/2026-05-04"
 
 n_total <- 11337
 

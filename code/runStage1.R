@@ -1,5 +1,5 @@
 # declare the project root
-here::i_am("runComboAMP.R")
+here::i_am("code/runStage1.R")
 
 library(tidyverse)
 source(here::here("code/param.R"))
@@ -10,7 +10,7 @@ source(here::here("code/utils.R"))
 
 registerDoParallel(cores = n_cores)
 
-for (n in n_target_cases:250){
+for (n in n_target_cases:50){
   df <- run_stage1(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
                    altHR_l = altHR_l, info_fractions = info_fractions,
                    alpha_1sided = alpha_1sided,
@@ -39,6 +39,7 @@ df <- run_stage1(compare = "h", nullHR = nullHR, altHR_h = altHR_h,
                  n_enroll_m = n_enroll_m, tau = tau, iter = iter,
                  n_cores = n_cores, verbose = TRUE)
 mean(df$reject_H0)
+colMeans(df %>% filter(stop_at_IA == 0) %>% select(starts_with("n_cases")))
 
 plot_time_to_end_stage1(df, path = path)
 # plot_fu_time_eff_phase(df, path = path)
