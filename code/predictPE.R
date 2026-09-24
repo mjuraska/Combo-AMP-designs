@@ -200,6 +200,29 @@ h <- list(c(1, 1, 1),
           c(1, 0.2, 0.2),
           c(0.2, 0.2, 0.2))
 
+#PE(v) for combo AMP high dose 
+beta_h <- uniroot(f_beta, interval = c(0.1, 2.5), dens = dens, altHR = altHR_h, tol = 1e-9)$root
+
+#density of log10 IC80 for each new combo AMP bnAb
+ic80_h <- sapply(h, function(vec){
+  ic80_a1 <- log10(d_ic80$PGDM * vec[1])
+  ic80_a2 <- log10(d_ic80$PGT * vec[2])
+  ic80_a3 <- log10(d_ic80$VRC * vec[3])
+  log10_comb_ic80 <- log10(1 / ((1 / 10^ic80_a1) + (1 / 10^ic80_a2) + (1 / 10^ic80_a3)))
+  return(log10_comb_ic80)
+})
+
+true_pe_h <- sapply(1:length(h), function(j){
+  dens_h <- density(ic80_h[, j], n = 10000)
+  dx <- diff(dens_h$x)
+  ve_h <- 1 - exp(beta_h * (dens_h$x - 1))
+  area <- sum(dx * (dens_h$y[-1] + dens_h$y[-length(dens_h$y)]) / 2 * ve_h[-length(ve_h)])
+  return(area)
+})
+
+
+
+
 start_time <- Sys.time()
 
 for (j in 1:length(h)){
