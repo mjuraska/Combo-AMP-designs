@@ -216,7 +216,8 @@ true_pe_h <- sapply(1:length(h), function(j){
   dens_h <- density(ic80_h[, j], n = 10000)
   dx <- diff(dens_h$x)
   ve_h <- 1 - exp(beta_h * (dens_h$x - 1))
-  area <- sum(dx * (dens_h$y[-1] + dens_h$y[-length(dens_h$y)]) / 2 * ve_h[-length(ve_h)])
+  integrand <- dens_h$y * ve_h
+  area <- sum(dx * (integrand[-1] + integrand[-length(integrand)]) / 2)
   return(area)
 })
 
